@@ -104,7 +104,10 @@ export default function App() {
 
     if (!result.canceled && result.assets && result.assets.length > 0) {
       setIsUploading(true);
-      const response = await uploadGarmentPhoto(result.assets[0].uri, selectedGender);
+      const response = await fetch(`${SERVER_URL}/api/wardrobe/upload`, { 
+        method: 'POST',
+        body: formData,
+      });
       setIsUploading(false);
 
       if (response.status === 'success') {

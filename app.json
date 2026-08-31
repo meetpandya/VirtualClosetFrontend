@@ -1,13 +1,17 @@
 {
   "expo": {
     "name": "VirtualClosetAndroid",
-    "slug": "VirtualClosetAndroid",
+    "slug": "virtual-closet-app",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.meetpandya.VirtualClosetAndroid",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -23,8 +27,9 @@
     },
     "extra": {
       "eas": {
-        "projectId": "d2c28923-cb1a-428d-bc42-708fc4ed3aea"
+        "projectId": "e5c5470f-5f89-456a-9895-f29913ef3853"
       }
-    }
+    },
+    "owner": "meetpandyas-team"
   }
 }

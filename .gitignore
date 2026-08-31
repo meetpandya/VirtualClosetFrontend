@@ -1,0 +1,16 @@
+# Dependencies
+node_modules/
+
+# Expo & Build folders
+.expo/
+.claude/
+dist/
+web-build/
+
+# Native builds
+*.apk
+*.aab
+
+# System & Environment
+.DS_Store
+*.log

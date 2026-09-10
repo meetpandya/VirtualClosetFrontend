@@ -1,5 +1,8 @@
-// Replace 192.168.1.XX with your PC's Wi-Fi IP address from ipconfig
-const API_BASE_URL = 'http://192.168.50.52:8000/api';
+import { Platform } from 'react-native';
+
+// Replace local IP with Cloudflare Tunnel URL or EXPO_PUBLIC_API_URL
+const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL || 'https://count-spas-sister-volunteer.trycloudflare.com/api';
+
 export const fetchDailyOutfits = async (temp = 16, condition = 'Rain') => {
   try {
     const response = await fetch(`${API_BASE_URL}/outfits/daily?temp=${temp}&condition=${condition}`);
@@ -33,9 +36,15 @@ export const selectWearOutfit = async (itemIds, occasion = 'Daily Outfit') => {
 export const uploadGarmentPhoto = async (imageUri, gender = 'Female') => {
   try {
     const formData = new FormData();
+
+    // Format URI specifically for Android compatibility
+    const formattedUri = Platform.OS === 'android' 
+      ? imageUri 
+      : imageUri.replace('file://', '');
+
     formData.append('file', {
-      uri: imageUri,
-      name: 'garment.jpg',
+      uri: formattedUri,
+      name: `garment_${Date.now()}.jpg`,
       type: 'image/jpeg',
     });
     formData.append('gender', gender);
@@ -54,6 +63,7 @@ export const uploadGarmentPhoto = async (imageUri, gender = 'Female') => {
     return { status: 'error' };
   }
 };
+
 export const fetchWardrobeItems = async (gender = 'Female') => {
   try {
     const response = await fetch(`${API_BASE_URL}/wardrobe/items?gender=${gender}`);

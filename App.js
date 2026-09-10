@@ -16,7 +16,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { fetchDailyOutfits, uploadGarmentPhoto, fetchWardrobeItems, deleteGarmentItem } from './api';
 
 // Replace PC_IP / local IP with your live Render URL
-const SERVER_URL = 'https://virtual-closet-backend.onrender.com'; // Use your actual Render URL
+const SERVER_URL = 'https://count-spas-sister-volunteer.trycloudflare.com'; // Use your actual Render URL
 
 const SUBTYPE_FILTERS = ['All', 'Polo', 'T-Shirt', 'Full Sleeve Tee', 'Jeans', 'Shorts', 'Pants', 'Sneakers', 'Sports Shoes'];
 

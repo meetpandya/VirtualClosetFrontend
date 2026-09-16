@@ -1,7 +1,11 @@
 import { Platform } from 'react-native';
 
-// Replace local IP with Cloudflare Tunnel URL or EXPO_PUBLIC_API_URL
 const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL || 'https://count-spas-sister-volunteer.trycloudflare.com/api';
+
+// Helper to format native image file URIs for Android/iOS
+const formatNativeUri = (uri) => {
+  return Platform.OS === 'android' ? uri : uri.replace('file://', '');
+};
 
 export const fetchDailyOutfits = async (temp = 16, condition = 'Rain') => {
   try {
@@ -33,17 +37,12 @@ export const selectWearOutfit = async (itemIds, occasion = 'Daily Outfit') => {
   }
 };
 
+// --- Single Photo Upload (Camera Capture or Single Item) ---
 export const uploadGarmentPhoto = async (imageUri, gender = 'Female') => {
   try {
     const formData = new FormData();
-
-    // Format URI specifically for Android compatibility
-    const formattedUri = Platform.OS === 'android' 
-      ? imageUri 
-      : imageUri.replace('file://', '');
-
     formData.append('file', {
-      uri: formattedUri,
+      uri: formatNativeUri(imageUri),
       name: `garment_${Date.now()}.jpg`,
       type: 'image/jpeg',
     });
@@ -59,8 +58,38 @@ export const uploadGarmentPhoto = async (imageUri, gender = 'Female') => {
 
     return await response.json();
   } catch (error) {
-    console.error('Upload failed:', error);
-    return { status: 'error' };
+    console.error('Single upload failed:', error);
+    return { status: 'error', message: error.message };
+  }
+};
+
+// --- Batch Photo Upload (Multiple Gallery Items) ---
+export const uploadGarmentBatch = async (imageUris, gender = 'Female') => {
+  try {
+    const formData = new FormData();
+
+    imageUris.forEach((uri, index) => {
+      formData.append('files', {
+        uri: formatNativeUri(uri),
+        name: `garment_${index}_${Date.now()}.jpg`,
+        type: 'image/jpeg',
+      });
+    });
+
+    formData.append('gender', gender);
+
+    const response = await fetch(`${API_BASE_URL}/wardrobe/batch-upload`, {
+      method: 'POST',
+      body: formData,
+      headers: {
+        'Accept': 'application/json',
+      },
+    });
+
+    return await response.json();
+  } catch (error) {
+    console.error('Batch upload failed:', error);
+    return { status: 'error', message: error.message };
   }
 };
 

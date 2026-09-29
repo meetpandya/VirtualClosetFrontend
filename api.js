@@ -1,53 +1,29 @@
 import { Platform } from 'react-native';
 
-const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL || 'https://scan-firewire-entire-holdem.trycloudflare.com/api';
+// Update this URL whenever your cloudflared tunnel regenerates
+export const API_BASE_URL = 'https://scan-firewire-entire-holdem.trycloudflare.com/api';
 
-// Helper to format native image file URIs for Android/iOS
-const formatNativeUri = (uri) => {
-  return Platform.OS === 'android' ? uri : uri.replace('file://', '');
-};
-
-export const fetchDailyOutfits = async (temp = 16, condition = 'Rain') => {
-  try {
-    const response = await fetch(`${API_BASE_URL}/outfits/daily?temp=${temp}&condition=${condition}`);
-    const data = await response.json();
-    return data;
-  } catch (error) {
-    console.error('Error fetching daily outfits:', error);
-    return { status: 'error', outfits: [] };
-  }
-};
-
-export const selectWearOutfit = async (itemIds, occasion = 'Daily Outfit') => {
-  try {
-    const response = await fetch(`${API_BASE_URL}/outfits/select`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        item_ids: itemIds,
-        occasion: occasion,
-        temperature: 16.0,
-        weather_condition: 'Rain'
-      }),
-    });
-    return await response.json();
-  } catch (error) {
-    console.error('Error marking outfit as worn:', error);
-    return { status: 'error' };
-  }
-};
-
-// --- Single Photo Upload (Camera Capture or Single Item) ---
+/**
+ * Uploads a garment photo to the FastAPI backend.
+ */
 export const uploadGarmentPhoto = async (imageUri, gender = 'Female') => {
+  console.log('--- STARTING UPLOAD ---');
+  console.log('Target API Endpoint:', `${API_BASE_URL}/wardrobe/upload`);
+
   try {
     const formData = new FormData();
+    
+    // Format URI for Android vs iOS
+    const cleanUri = Platform.OS === 'android' ? imageUri : imageUri.replace('file://', '');
+
     formData.append('file', {
-      uri: formatNativeUri(imageUri),
+      uri: cleanUri,
       name: `garment_${Date.now()}.jpg`,
       type: 'image/jpeg',
     });
     formData.append('gender', gender);
 
+    // Note: Do NOT explicitly add 'Content-Type': 'multipart/form-data'
     const response = await fetch(`${API_BASE_URL}/wardrobe/upload`, {
       method: 'POST',
       body: formData,
@@ -56,61 +32,41 @@ export const uploadGarmentPhoto = async (imageUri, gender = 'Female') => {
       },
     });
 
-    return await response.json();
+    console.log('Upload HTTP Status:', response.status);
+    const data = await response.json();
+    console.log('Upload Response Data:', data);
+    return data;
   } catch (error) {
-    console.error('Single upload failed:', error);
+    console.error('Upload API Error:', error);
     return { status: 'error', message: error.message };
   }
 };
 
-// --- Batch Photo Upload (Multiple Gallery Items) ---
-export const uploadGarmentBatch = async (imageUris, gender = 'Female') => {
+/**
+ * Fetches the wardrobe items list for a specific gender filter.
+ */
+export const fetchWardrobeItems = async (gender = 'Female') => {
   try {
-    const formData = new FormData();
-
-    imageUris.forEach((uri, index) => {
-      formData.append('files', {
-        uri: formatNativeUri(uri),
-        name: `garment_${index}_${Date.now()}.jpg`,
-        type: 'image/jpeg',
-      });
-    });
-
-    formData.append('gender', gender);
-
-    const response = await fetch(`${API_BASE_URL}/wardrobe/batch-upload`, {
-      method: 'POST',
-      body: formData,
+    const response = await fetch(`${API_BASE_URL}/wardrobe/items?gender=${encodeURIComponent(gender)}`, {
+      method: 'GET',
       headers: {
         'Accept': 'application/json',
       },
     });
 
-    return await response.json();
+    const data = await response.json();
+    if (data.status === 'success') {
+      // Map base host URL to image relative paths so <Image /> component can resolve them
+      const hostUrl = API_BASE_URL.replace('/api', '');
+      const itemsWithFullUrls = data.items.map((item) => ({
+        ...item,
+        image_url: `${hostUrl}${item.image_path}`,
+      }));
+      return { status: 'success', items: itemsWithFullUrls };
+    }
+    return data;
   } catch (error) {
-    console.error('Batch upload failed:', error);
-    return { status: 'error', message: error.message };
-  }
-};
-
-export const fetchWardrobeItems = async (gender = 'Female') => {
-  try {
-    const response = await fetch(`${API_BASE_URL}/wardrobe/items?gender=${gender}`);
-    return await response.json();
-  } catch (error) {
-    console.error('Error fetching wardrobe items:', error);
+    console.error('Fetch Items API Error:', error);
     return { status: 'error', items: [] };
-  }
-};
-
-export const deleteGarmentItem = async (itemId) => {
-  try {
-    const response = await fetch(`${API_BASE_URL}/wardrobe/items/${itemId}`, {
-      method: 'DELETE',
-    });
-    return await response.json();
-  } catch (error) {
-    console.error('Error deleting item:', error);
-    return { status: 'error' };
   }
 };

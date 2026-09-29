@@ -1,6 +1,6 @@
 import { Platform } from 'react-native';
 
-const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL || 'https://illustrations-permits-gossip-jerry.trycloudflare.com/api';
+const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL || 'https://scan-firewire-entire-holdem.trycloudflare.com/api';
 
 // Helper to format native image file URIs for Android/iOS
 const formatNativeUri = (uri) => {

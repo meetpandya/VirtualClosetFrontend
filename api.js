@@ -1,7 +1,7 @@
 import { Platform } from 'react-native';
 
 // Point directly to your Pi's local network IP on port 8000
-export const API_BASE_URL = 'http://192.168.50.13:8000/api';
+export const API_BASE_URL = 'http://192.168.50.183:8000/api';
 
 /**
  * Uploads a garment photo to the local FastAPI backend.

@@ -1,19 +1,19 @@
 import { Platform } from 'react-native';
 
-// Update this URL whenever your cloudflared tunnel regenerates
-export const API_BASE_URL = 'https://scan-firewire-entire-holdem.trycloudflare.com/api';
+// Point directly to your Pi's local network IP on port 8000
+export const API_BASE_URL = 'http://192.168.50.183:8000/api';
 
 /**
- * Uploads a garment photo to the FastAPI backend.
+ * Uploads a garment photo to the local FastAPI backend.
  */
 export const uploadGarmentPhoto = async (imageUri, gender = 'Female') => {
-  console.log('--- STARTING UPLOAD ---');
+  console.log('--- STARTING LOCAL UPLOAD ---');
   console.log('Target API Endpoint:', `${API_BASE_URL}/wardrobe/upload`);
 
   try {
     const formData = new FormData();
     
-    // Format URI for Android vs iOS
+    // Format URI cleanly for Android vs iOS
     const cleanUri = Platform.OS === 'android' ? imageUri : imageUri.replace('file://', '');
 
     formData.append('file', {
@@ -23,7 +23,7 @@ export const uploadGarmentPhoto = async (imageUri, gender = 'Female') => {
     });
     formData.append('gender', gender);
 
-    // Note: Do NOT explicitly add 'Content-Type': 'multipart/form-data'
+    // Note: Do NOT manually set 'Content-Type': 'multipart/form-data'
     const response = await fetch(`${API_BASE_URL}/wardrobe/upload`, {
       method: 'POST',
       body: formData,
@@ -43,7 +43,7 @@ export const uploadGarmentPhoto = async (imageUri, gender = 'Female') => {
 };
 
 /**
- * Fetches the wardrobe items list for a specific gender filter.
+ * Fetches wardrobe items list and maps local IP host to static image paths.
  */
 export const fetchWardrobeItems = async (gender = 'Female') => {
   try {
@@ -56,7 +56,6 @@ export const fetchWardrobeItems = async (gender = 'Female') => {
 
     const data = await response.json();
     if (data.status === 'success') {
-      // Map base host URL to image relative paths so <Image /> component can resolve them
       const hostUrl = API_BASE_URL.replace('/api', '');
       const itemsWithFullUrls = data.items.map((item) => ({
         ...item,

@@ -1,9 +1,9 @@
-name: Build Android APK
+name: Build & Sign Android APK
 
 on:
   push:
     branches: [ main ]
-  workflow_dispatch: # Allows manual trigger from GitHub UI
+  workflow_dispatch:
 
 jobs:
   build:
@@ -24,8 +24,9 @@ jobs:
           distribution: 'zulu'
           java-version: '17'
 
+      # Correct official action for Android SDK setup
       - name: Setup Android SDK
-        uses: actions/use-android-sdk@v1
+        uses: android-actions/setup-android@v3
 
       - name: Install Dependencies
         run: npm ci
@@ -33,14 +34,24 @@ jobs:
       - name: Prebuild Native Android Project
         run: npx expo prebuild --platform android
 
-      - name: Build Android APK with Gradle
+      - name: Build Unsigned Android Release APK
         run: |
           cd android
           chmod +x gradlew
           ./gradlew assembleRelease --no-daemon
 
-      - name: Upload APK Artifact
+      - name: Sign Android Release APK
+        uses: r2da/sign-android-release-action@v1
+        id: sign_app
+        with:
+          releaseDirectory: android/app/build/outputs/apk/release
+          signingKeyBase64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          alias: ${{ secrets.ANDROID_KEY_ALIAS }}
+          keyStorePassword: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          keyPassword: ${{ secrets.ANDROID_KEY_PASSWORD }}
+
+      - name: Upload Signed APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: app-release.apk
-          path: android/app/build/outputs/apk/release/app-release.apk
+          name: VirtualCloset-Signed.apk
+          path: ${{ steps.sign_app.outputs.signedFile }}

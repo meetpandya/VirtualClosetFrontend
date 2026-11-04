@@ -1,30 +1,52 @@
-import { Platform } from 'react-native';
+import { Alert } from 'react-native';
 
-// Point directly to your Pi's local network IP on port 8000
+// UPDATE THIS TO YOUR RASPBERRY PI'S TAILSCALE IP ADDRESS (100.x.y.z)
 export const API_BASE_URL = 'http://100.66.114.19:8000/api';
 
 /**
- * Uploads a garment photo to the local FastAPI backend.
+ * Fetch wardrobe items filtered by gender.
+ * Includes explicit error alerts for native mobile debugging.
  */
-export const uploadGarmentPhoto = async (imageUri, gender = 'Female') => {
-  console.log('--- STARTING LOCAL UPLOAD ---');
-  console.log('Target API Endpoint:', `${API_BASE_URL}/wardrobe/upload`);
+export const fetchWardrobeItems = async (gender = 'Female') => {
+  const targetUrl = `${API_BASE_URL}/items?gender=${gender}`;
+  console.log('Sending request to:', targetUrl);
 
   try {
-    const formData = new FormData();
-    
-    // Format URI cleanly for Android vs iOS
-    const cleanUri = Platform.OS === 'android' ? imageUri : imageUri.replace('file://', '');
-
-    formData.append('file', {
-      uri: cleanUri,
-      name: `garment_${Date.now()}.jpg`,
-      type: 'image/jpeg',
+    const response = await fetch(targetUrl, {
+      method: 'GET',
+      headers: {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json',
+      },
     });
-    formData.append('gender', gender);
 
-    // Note: Do NOT manually set 'Content-Type': 'multipart/form-data'
-    const response = await fetch(`${API_BASE_URL}/wardrobe/upload`, {
+    if (!response.ok) {
+      throw new Error(`Server returned HTTP ${response.status}`);
+    }
+
+    const data = await response.json();
+    return { status: 'success', items: data.items || data };
+  } catch (error) {
+    console.error('FETCH ERROR DETAILS:', error);
+
+    // Displays raw fetch failure reasons directly on screen
+    Alert.alert(
+      'Diagnostic Network Error',
+      `Target URL: ${targetUrl}\n\nError Message: ${error.message}`
+    );
+
+    return { status: 'error', message: error.message };
+  }
+};
+
+/**
+ * Upload a new garment image with metadata to the Raspberry Pi backend.
+ */
+export const uploadGarmentImage = async (formData) => {
+  const targetUrl = `${API_BASE_URL}/items/upload`;
+
+  try {
+    const response = await fetch(targetUrl, {
       method: 'POST',
       body: formData,
       headers: {
@@ -32,40 +54,20 @@ export const uploadGarmentPhoto = async (imageUri, gender = 'Female') => {
       },
     });
 
-    console.log('Upload HTTP Status:', response.status);
-    const data = await response.json();
-    console.log('Upload Response Data:', data);
-    return data;
-  } catch (error) {
-    console.error('Upload API Error:', error);
-    return { status: 'error', message: error.message };
-  }
-};
-
-/**
- * Fetches wardrobe items list and maps local IP host to static image paths.
- */
-export const fetchWardrobeItems = async (gender = 'Female') => {
-  try {
-    const response = await fetch(`${API_BASE_URL}/wardrobe/items?gender=${encodeURIComponent(gender)}`, {
-      method: 'GET',
-      headers: {
-        'Accept': 'application/json',
-      },
-    });
-
-    const data = await response.json();
-    if (data.status === 'success') {
-      const hostUrl = API_BASE_URL.replace('/api', '');
-      const itemsWithFullUrls = data.items.map((item) => ({
-        ...item,
-        image_url: `${hostUrl}${item.image_path}`,
-      }));
-      return { status: 'success', items: itemsWithFullUrls };
+    if (!response.ok) {
+      throw new Error(`Server returned HTTP ${response.status}`);
     }
-    return data;
+
+    const data = await response.json();
+    return { status: 'success', data };
   } catch (error) {
-    console.error('Fetch Items API Error:', error);
-    return { status: 'error', items: [] };
+    console.error('UPLOAD ERROR DETAILS:', error);
+
+    Alert.alert(
+      'Diagnostic Upload Error',
+      `Target URL: ${targetUrl}\n\nError Message: ${error.message}`
+    );
+
+    return { status: 'error', message: error.message };
   }
 };

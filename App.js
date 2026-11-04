@@ -13,7 +13,7 @@ import {
   Platform,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
-import { fetchWardrobeItems, uploadGarmentPhoto } from './src/services/api';
+import { fetchWardrobeItems, uploadGarmentPhoto } from './api';
 
 export default function App() {
   const [gender, setGender] = useState('Female');

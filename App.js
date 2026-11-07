@@ -11,9 +11,13 @@ import {
   SafeAreaView,
   RefreshControl,
   Platform,
+  Modal,
+  Dimensions,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { fetchWardrobeItems, uploadGarmentImage, getImageUrl } from './api';
+
+const { width, height } = Dimensions.get('window');
 
 export default function App() {
   const [gender, setGender] = useState('Female');
@@ -21,6 +25,10 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [uploading, setUploading] = useState(false);
+
+  // Modal State for Image Expansion
+  const [selectedItem, setSelectedItem] = useState(null);
+  const [modalVisible, setModalVisible] = useState(false);
 
   // Load wardrobe items from local Pi backend
   const loadWardrobe = useCallback(async (selectedGender = gender) => {
@@ -45,10 +53,20 @@ export default function App() {
     setRefreshing(false);
   };
 
-  // Image Picker & Fast Local Upload
+  // Expand Image Handler
+  const handleOpenImage = (item) => {
+    setSelectedItem(item);
+    setModalVisible(true);
+  };
+
+  const handleCloseImage = () => {
+    setModalVisible(false);
+    setSelectedItem(null);
+  };
+
+  // Image Picker & Local Upload
   const handlePickAndUpload = async (useCamera = false) => {
     try {
-      // 1. Request Permissions
       const permissionResult = useCamera
         ? await ImagePicker.requestCameraPermissionsAsync()
         : await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -58,7 +76,6 @@ export default function App() {
         return;
       }
 
-      // 2. Launch Camera or Gallery
       const result = useCamera
         ? await ImagePicker.launchCameraAsync({
             mediaTypes: ImagePicker.MediaTypeOptions.Images,
@@ -77,7 +94,6 @@ export default function App() {
 
       const selectedAsset = result.assets[0];
 
-      // 3. Build Multipart FormData expected by main.py
       const formData = new FormData();
       const imageUri = Platform.OS === 'android' 
         ? selectedAsset.uri 
@@ -91,7 +107,6 @@ export default function App() {
 
       formData.append('gender', gender);
 
-      // 4. Trigger Non-blocking Local Upload
       setUploading(true);
       const uploadRes = await uploadGarmentImage(formData);
       setUploading(false);
@@ -109,9 +124,13 @@ export default function App() {
     }
   };
 
-  // Render Item Card
+  // Render Item Card (Click to expand)
   const renderGarmentCard = ({ item }) => (
-    <View style={styles.card}>
+    <TouchableOpacity 
+      style={styles.card} 
+      activeOpacity={0.8} 
+      onPress={() => handleOpenImage(item)}
+    >
       <Image
         source={{ uri: getImageUrl(item.image_path) }}
         style={styles.cardImage}
@@ -125,14 +144,17 @@ export default function App() {
         </View>
         <Text style={styles.colorText}>Color: {item.color}</Text>
       </View>
-    </View>
+    </TouchableOpacity>
   );
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* Header */}
+      {/* Header with Atelier Luxury Styling */}
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Virtual Closet</Text>
+        <View style={styles.brandRow}>
+          <Text style={styles.brandTitle}>ATELIER</Text>
+          <Text style={styles.brandSubtitle}>DIGITAL WARDROBE</Text>
+        </View>
         
         {/* Gender Filter Toggle */}
         <View style={styles.genderToggleContainer}>
@@ -155,11 +177,11 @@ export default function App() {
         </View>
       </View>
 
-      {/* Main Content / Wardrobe Grid */}
+      {/* Wardrobe Grid */}
       {loading && !refreshing ? (
         <View style={styles.centerContainer}>
-          <ActivityIndicator size="large" color="#4F46E5" />
-          <Text style={styles.loadingText}>Loading Wardrobe...</Text>
+          <ActivityIndicator size="large" color="#C5A880" />
+          <Text style={styles.loadingText}>Loading Atelier Wardrobe...</Text>
         </View>
       ) : (
         <FlatList
@@ -169,7 +191,7 @@ export default function App() {
           numColumns={2}
           contentContainerStyle={styles.listContainer}
           refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#4F46E5']} />
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#C5A880']} />
           }
           ListEmptyComponent={
             <View style={styles.centerContainer}>
@@ -184,8 +206,8 @@ export default function App() {
       <View style={styles.footerActionContainer}>
         {uploading ? (
           <View style={styles.uploadingContainer}>
-            <ActivityIndicator size="small" color="#FFFFFF" />
-            <Text style={styles.uploadingText}>Sending photo to Raspberry Pi...</Text>
+            <ActivityIndicator size="small" color="#0F172A" />
+            <Text style={styles.uploadingText}>Sending photo to Atelier Backend...</Text>
           </View>
         ) : (
           <View style={styles.buttonRow}>
@@ -205,6 +227,42 @@ export default function App() {
           </View>
         )}
       </View>
+
+      {/* Full Screen Image Viewer Modal */}
+      <Modal
+        visible={modalVisible}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={handleCloseImage}
+      >
+        <View style={styles.modalOverlay}>
+          <TouchableOpacity 
+            style={styles.modalBackgroundTouch} 
+            activeOpacity={1} 
+            onPress={handleCloseImage}
+          >
+            {selectedItem && (
+              <View style={styles.expandedCard}>
+                <Image
+                  source={{ uri: getImageUrl(selectedItem.image_path) }}
+                  style={styles.expandedImage}
+                  resizeMode="contain"
+                />
+                <View style={styles.expandedDetails}>
+                  <Text style={styles.expandedTitle}>{selectedItem.name}</Text>
+                  <Text style={styles.expandedSub}>
+                    {selectedItem.category} • {selectedItem.sub_type}
+                  </Text>
+                  <Text style={styles.expandedColor}>Color: {selectedItem.color}</Text>
+                </View>
+                <TouchableOpacity style={styles.closeButton} onPress={handleCloseImage}>
+                  <Text style={styles.closeButtonText}>Close</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+          </TouchableOpacity>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -212,27 +270,40 @@ export default function App() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F9FAFB',
+    backgroundColor: '#0F172A',
     paddingTop: Platform.OS === 'android' ? 30 : 0,
   },
   header: {
     paddingHorizontal: 20,
-    paddingVertical: 15,
-    backgroundColor: '#FFFFFF',
+    paddingTop: Platform.OS === 'android' ? 20 : 10,
+    paddingBottom: 16,
+    backgroundColor: '#0F172A',
     borderBottomWidth: 1,
-    borderBottomColor: '#E5E7EB',
+    borderBottomColor: '#1E293B',
   },
-  headerTitle: {
-    fontSize: 24,
-    fontWeight: '700',
-    color: '#111827',
-    marginBottom: 10,
+  brandRow: {
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  brandTitle: {
+    fontSize: 28,
+    fontWeight: '300',
+    letterSpacing: 6,
+    color: '#F8FAFC',
+    fontFamily: Platform.OS === 'ios' ? 'Didot' : 'serif',
+  },
+  brandSubtitle: {
+    fontSize: 9,
+    fontWeight: '600',
+    letterSpacing: 4,
+    color: '#C5A880',
+    marginTop: 4,
   },
   genderToggleContainer: {
     flexDirection: 'row',
-    backgroundColor: '#F3F4F6',
+    backgroundColor: '#1E293B',
     borderRadius: 8,
-    padding: 4,
+    padding: 3,
   },
   genderButton: {
     flex: 1,
@@ -241,14 +312,16 @@ const styles = StyleSheet.create({
     borderRadius: 6,
   },
   genderButtonActive: {
-    backgroundColor: '#4F46E5',
+    backgroundColor: '#C5A880',
   },
   genderText: {
     fontWeight: '600',
-    color: '#4B5563',
+    color: '#94A3B8',
+    fontSize: 13,
   },
   genderTextActive: {
-    color: '#FFFFFF',
+    color: '#0F172A',
+    fontWeight: '700',
   },
   centerContainer: {
     flex: 1,
@@ -259,16 +332,16 @@ const styles = StyleSheet.create({
   },
   loadingText: {
     marginTop: 10,
-    color: '#6B7280',
+    color: '#94A3B8',
   },
   emptyText: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#374151',
+    color: '#F8FAFC',
   },
   emptySubText: {
     fontSize: 14,
-    color: '#9CA3AF',
+    color: '#64748B',
     marginTop: 5,
   },
   listContainer: {
@@ -276,22 +349,18 @@ const styles = StyleSheet.create({
   },
   card: {
     flex: 0.5,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#1E293B',
     margin: 6,
     borderRadius: 12,
     overflow: 'hidden',
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: '#334155',
     elevation: 2,
-    shadowColor: '#000',
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    shadowOffset: { width: 0, height: 2 },
   },
   cardImage: {
     width: '100%',
     height: 160,
-    backgroundColor: '#F3F4F6',
+    backgroundColor: '#0F172A',
   },
   cardInfo: {
     padding: 10,
@@ -299,7 +368,7 @@ const styles = StyleSheet.create({
   cardTitle: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#1F2937',
+    color: '#F8FAFC',
     marginBottom: 6,
   },
   badgeContainer: {
@@ -310,8 +379,8 @@ const styles = StyleSheet.create({
   },
   badgeText: {
     fontSize: 11,
-    backgroundColor: '#EEF2FF',
-    color: '#4F46E5',
+    backgroundColor: '#334155',
+    color: '#C5A880',
     paddingHorizontal: 6,
     paddingVertical: 2,
     borderRadius: 4,
@@ -319,22 +388,22 @@ const styles = StyleSheet.create({
   },
   badgeTextSub: {
     fontSize: 11,
-    backgroundColor: '#F3F4F6',
-    color: '#4B5563',
+    backgroundColor: '#0F172A',
+    color: '#94A3B8',
     paddingHorizontal: 6,
     paddingVertical: 2,
     borderRadius: 4,
   },
   colorText: {
     fontSize: 11,
-    color: '#6B7280',
+    color: '#94A3B8',
     marginTop: 2,
   },
   footerActionContainer: {
     padding: 16,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#0F172A',
     borderTopWidth: 1,
-    borderTopColor: '#E5E7EB',
+    borderTopColor: '#1E293B',
   },
   buttonRow: {
     flexDirection: 'row',
@@ -348,19 +417,19 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   galleryButton: {
-    backgroundColor: '#4F46E5',
+    backgroundColor: '#C5A880',
   },
   cameraButton: {
-    backgroundColor: '#10B981',
+    backgroundColor: '#334155',
   },
   buttonText: {
-    color: '#FFFFFF',
-    fontWeight: '600',
+    color: '#0F172A',
+    fontWeight: '700',
     fontSize: 15,
   },
   uploadingContainer: {
     flexDirection: 'row',
-    backgroundColor: '#4F46E5',
+    backgroundColor: '#C5A880',
     paddingVertical: 14,
     borderRadius: 10,
     alignItems: 'center',
@@ -368,7 +437,69 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   uploadingText: {
-    color: '#FFFFFF',
-    fontWeight: '600',
+    color: '#0F172A',
+    fontWeight: '700',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.9)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalBackgroundTouch: {
+    width: '100%',
+    height: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  expandedCard: {
+    width: width * 0.9,
+    maxHeight: height * 0.8,
+    backgroundColor: '#1E293B',
+    borderRadius: 16,
+    padding: 16,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#334155',
+  },
+  expandedImage: {
+    width: '100%',
+    height: height * 0.45,
+    borderRadius: 12,
+    backgroundColor: '#0F172A',
+  },
+  expandedDetails: {
+    width: '100%',
+    alignItems: 'center',
+    marginVertical: 12,
+  },
+  expandedTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#F8FAFC',
+  },
+  expandedSub: {
+    fontSize: 14,
+    color: '#C5A880',
+    marginTop: 4,
+    fontWeight: '500',
+  },
+  expandedColor: {
+    fontSize: 13,
+    color: '#94A3B8',
+    marginTop: 2,
+  },
+  closeButton: {
+    backgroundColor: '#C5A880',
+    paddingVertical: 10,
+    paddingHorizontal: 24,
+    borderRadius: 8,
+    marginTop: 8,
+  },
+  closeButtonText: {
+    color: '#0F172A',
+    fontWeight: '700',
+    fontSize: 14,
   },
 });

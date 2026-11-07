@@ -1,22 +1,22 @@
 {
-  "name": "virtualclosetandroid",
+  "name": "atelier",
   "version": "1.0.0",
-  "main": "index.js",
-  "dependencies": {
-    "expo": "~54.0.8",
-    "expo-dev-client": "~6.0.21",
-    "expo-image-picker": "~17.0.11",
-    "expo-status-bar": "~3.0.9",
-    "lucide-react-native": "^1.33.0",
-    "react": "19.1.0",
-    "react-native": "0.81.5",
-    "react-native-svg": "15.12.1"
-  },
+  "main": "node_modules/expo/AppEntry.js",
   "scripts": {
     "start": "expo start",
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web"
+  },
+  "dependencies": {
+    "expo": "~51.0.0",
+    "expo-image-picker": "~15.0.4",
+    "expo-status-bar": "~1.12.1",
+    "react": "18.2.0",
+    "react-native": "0.74.5"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.20.0"
   },
   "private": true
 }

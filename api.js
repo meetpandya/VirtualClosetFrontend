@@ -1,7 +1,7 @@
 import { Alert } from 'react-native';
 
-// UPDATE THIS TO YOUR TAILSCALE DOMAIN / IP
-export const API_BASE_URL = 'https://raspberrypi.tailf2a0e2.ts.net/api';
+// Set your Tailscale domain or IP here
+export const API_BASE_URL = 'http://YOUR_PI_IP_OR_DOMAIN:8000/api';
 
 /**
  * Helper to turn relative backend image paths (/uploads/...) into full static URLs
@@ -49,7 +49,7 @@ export const fetchWardrobeItems = async (gender = 'Female') => {
  * Upload a new garment image with metadata to the Raspberry Pi backend.
  */
 export const uploadGarmentImage = async (formData) => {
-  const targetUrl = `${API_BASE_URL}/items/upload`;
+  const targetUrl = `${API_BASE_URL}/wardrobe/upload`;
 
   try {
     const response = await fetch(targetUrl, {

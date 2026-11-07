@@ -1,37 +1,39 @@
 {
   "expo": {
-    "name": "VirtualClosetAndroid",
-    "slug": "virtual-closet-app",
+    "name": "Atelier",
+    "slug": "Atelier",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
+    "userInterfaceStyle": "dark",
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#18181B"
+    },
     "ios": {
-      "supportsTablet": true,
-      "bundleIdentifier": "com.meetpandya.VirtualClosetAndroid",
-      "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
-      }
+      "supportsTablet": true
     },
     "android": {
+      "package": "com.atelier.app",
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
-        "foregroundImage": "./assets/android-icon-foreground.png",
-        "backgroundImage": "./assets/android-icon-background.png",
-        "monochromeImage": "./assets/android-icon-monochrome.png"
+        "foregroundImage": "./assets/icon.png",
+        "backgroundColor": "#18181B"
       },
-      "package": "com.meetpandya.VirtualClosetAndroid",
-      "usesCleartextTraffic": true,
-      "networkSecurityConfig": "./assets/network_security_config.xml"
-    },
-    "web": {
-      "favicon": "./assets/favicon.png"
-    },
-    "extra": {
-      "eas": {
-        "projectId": "e5c5470f-5f89-456a-9895-f29913ef3853"
+      "splash": {
+        "image": "./assets/splash-icon.png",
+        "resizeMode": "contain",
+        "backgroundColor": "#18181B"
       }
     },
-    "owner": "meetpandyas-team"
+    "plugins": [
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Atelier needs access to your photos to upload garment images.",
+          "cameraPermission": "Atelier needs access to your camera to take garment photos."
+        }
+      ]
+    ]
   }
 }

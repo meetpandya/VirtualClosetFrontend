@@ -1,11 +1,18 @@
 import { Alert } from 'react-native';
 
-// UPDATE THIS TO YOUR RASPBERRY PI'S TAILSCALE IP ADDRESS (100.x.y.z)
 export const API_BASE_URL = 'https://raspberrypi.tailf2a0e2.ts.net/api';
 
 /**
+ * Helper to turn relative backend image paths (/uploads/...) into full URLs
+ */
+export const getImageUrl = (relativePath) => {
+  if (!relativePath) return null;
+  const hostRoot = API_BASE_URL.replace('/api', '');
+  return `${hostRoot}${relativePath}`;
+};
+
+/**
  * Fetch wardrobe items filtered by gender.
- * Includes explicit error alerts for native mobile debugging.
  */
 export const fetchWardrobeItems = async (gender = 'Female') => {
   const targetUrl = `${API_BASE_URL}/items?gender=${gender}`;
@@ -29,7 +36,6 @@ export const fetchWardrobeItems = async (gender = 'Female') => {
   } catch (error) {
     console.error('FETCH ERROR DETAILS:', error);
 
-    // Displays raw fetch failure reasons directly on screen
     Alert.alert(
       'Diagnostic Network Error',
       `Target URL: ${targetUrl}\n\nError Message: ${error.message}`
@@ -43,7 +49,8 @@ export const fetchWardrobeItems = async (gender = 'Female') => {
  * Upload a new garment image with metadata to the Raspberry Pi backend.
  */
 export const uploadGarmentImage = async (formData) => {
-  const targetUrl = `${API_BASE_URL}/items/upload`;
+  // Fixed endpoint from /items/upload to /wardrobe/upload to match main.py
+  const targetUrl = `${API_BASE_URL}/wardrobe/upload`;
 
   try {
     const response = await fetch(targetUrl, {

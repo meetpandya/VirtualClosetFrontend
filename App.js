@@ -13,7 +13,7 @@ import {
   Platform,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
-import { fetchWardrobeItems, uploadGarmentPhoto } from './api';
+import { fetchWardrobeItems, uploadGarmentImage, getImageUrl } from './api';
 
 export default function App() {
   const [gender, setGender] = useState('Female');
@@ -58,12 +58,12 @@ export default function App() {
         return;
       }
 
-      // 2. Launch Camera or Gallery with compression
+      // 2. Launch Camera or Gallery
       const result = useCamera
         ? await ImagePicker.launchCameraAsync({
             mediaTypes: ImagePicker.MediaTypeOptions.Images,
             allowsEditing: true,
-            quality: 0.6, // Compressed to prevent heavy Wi-Fi transfers
+            quality: 0.6,
           })
         : await ImagePicker.launchImageLibraryAsync({
             mediaTypes: ImagePicker.MediaTypeOptions.Images,
@@ -75,15 +75,29 @@ export default function App() {
         return;
       }
 
-      const selectedUri = result.assets[0].uri;
+      const selectedAsset = result.assets[0];
 
-      // 3. Trigger Non-blocking Local Upload
+      // 3. Build Multipart FormData expected by main.py
+      const formData = new FormData();
+      const imageUri = Platform.OS === 'android' 
+        ? selectedAsset.uri 
+        : selectedAsset.uri.replace('file://', '');
+
+      formData.append('file', {
+        uri: imageUri,
+        name: selectedAsset.fileName || `garment_${Date.now()}.jpg`,
+        type: selectedAsset.mimeType || 'image/jpeg',
+      });
+
+      formData.append('gender', gender);
+
+      // 4. Trigger Non-blocking Local Upload
       setUploading(true);
-      const uploadRes = await uploadGarmentPhoto(selectedUri, gender);
+      const uploadRes = await uploadGarmentImage(formData);
       setUploading(false);
 
       if (uploadRes.status === 'success') {
-        // Immediately refresh the grid list
+        Alert.alert('Success', 'Photo uploaded! Auto-tagging in progress.');
         loadWardrobe(gender);
       } else {
         Alert.alert('Upload Failed', uploadRes.message || 'Server error occurred during upload.');
@@ -91,7 +105,7 @@ export default function App() {
     } catch (err) {
       setUploading(false);
       console.error('Pick & Upload Error:', err);
-      Alert.alert('Error', 'An unexpected error occurred while picking the image.');
+      Alert.alert('Error', err.message || 'An unexpected error occurred while picking the image.');
     }
   };
 
@@ -99,7 +113,7 @@ export default function App() {
   const renderGarmentCard = ({ item }) => (
     <View style={styles.card}>
       <Image
-        source={{ uri: item.image_url }}
+        source={{ uri: getImageUrl(item.image_path) }}
         style={styles.cardImage}
         resizeMode="cover"
       />

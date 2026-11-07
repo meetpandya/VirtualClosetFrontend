@@ -1,9 +1,10 @@
 import { Alert } from 'react-native';
 
+// UPDATE THIS TO YOUR TAILSCALE DOMAIN / IP
 export const API_BASE_URL = 'https://raspberrypi.tailf2a0e2.ts.net/api';
 
 /**
- * Helper to turn relative backend image paths (/uploads/...) into full URLs
+ * Helper to turn relative backend image paths (/uploads/...) into full static URLs
  */
 export const getImageUrl = (relativePath) => {
   if (!relativePath) return null;
@@ -16,7 +17,6 @@ export const getImageUrl = (relativePath) => {
  */
 export const fetchWardrobeItems = async (gender = 'Female') => {
   const targetUrl = `${API_BASE_URL}/items?gender=${gender}`;
-  console.log('Sending request to:', targetUrl);
 
   try {
     const response = await fetch(targetUrl, {
@@ -32,7 +32,7 @@ export const fetchWardrobeItems = async (gender = 'Female') => {
     }
 
     const data = await response.json();
-    return { status: 'success', items: data.items || data };
+    return { status: 'success', items: data.items || [] };
   } catch (error) {
     console.error('FETCH ERROR DETAILS:', error);
 
@@ -49,7 +49,6 @@ export const fetchWardrobeItems = async (gender = 'Female') => {
  * Upload a new garment image with metadata to the Raspberry Pi backend.
  */
 export const uploadGarmentImage = async (formData) => {
-  // Fixed endpoint from /items/upload to /wardrobe/upload to match main.py
   const targetUrl = `${API_BASE_URL}/items/upload`;
 
   try {

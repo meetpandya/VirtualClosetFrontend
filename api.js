@@ -50,7 +50,7 @@ export const fetchWardrobeItems = async (gender = 'Female') => {
  */
 export const uploadGarmentImage = async (formData) => {
   // Fixed endpoint from /items/upload to /wardrobe/upload to match main.py
-  const targetUrl = `${API_BASE_URL}/wardrobe/upload`;
+  const targetUrl = `${API_BASE_URL}/items/upload`;
 
   try {
     const response = await fetch(targetUrl, {

@@ -21,7 +21,8 @@
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "package": "com.meetpandya.VirtualClosetAndroid",
-      "usesCleartextTraffic": true
+      "usesCleartextTraffic": true,
+      "networkSecurityConfig": "./assets/network_security_config.xml"
     },
     "web": {
       "favicon": "./assets/favicon.png"

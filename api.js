@@ -1,7 +1,7 @@
 import { Alert } from 'react-native';
 
 // UPDATE THIS TO YOUR RASPBERRY PI'S TAILSCALE IP ADDRESS (100.x.y.z)
-export const API_BASE_URL = 'http://100.66.114.19:8000/api';
+export const API_BASE_URL = 'https://raspberrypi.tailf2a0e2.ts.net/api';
 
 /**
  * Fetch wardrobe items filtered by gender.

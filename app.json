@@ -24,7 +24,10 @@
         "image": "./assets/splash-icon.png",
         "resizeMode": "contain",
         "backgroundColor": "#18181B"
-      }
+      },
+      "permissions": [
+        "android.permission.RECORD_AUDIO"
+      ]
     },
     "plugins": [
       [
@@ -34,6 +37,12 @@
           "cameraPermission": "Atelier needs access to your camera to take garment photos."
         }
       ]
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "9e1b121e-7a18-43dc-9c8f-c5b6b0b4184a"
+      }
+    },
+    "owner": "meetpandyas-team"
   }
 }

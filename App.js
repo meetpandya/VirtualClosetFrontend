@@ -19,6 +19,9 @@ import { fetchWardrobeItems, uploadGarmentImage, getImageUrl } from './api';
 
 const { width, height } = Dimensions.get('window');
 
+// Set a unique identifier per user account
+const CURRENT_USER_ID = 'user_demo_123';
+
 export default function App() {
   const [gender, setGender] = useState('Female');
   const [items, setItems] = useState([]);
@@ -26,14 +29,14 @@ export default function App() {
   const [refreshing, setRefreshing] = useState(false);
   const [uploading, setUploading] = useState(false);
 
-  // Modal State for Image Expansion
+  // Modal state for full-screen image expansion
   const [selectedItem, setSelectedItem] = useState(null);
   const [modalVisible, setModalVisible] = useState(false);
 
-  // Load wardrobe items from local Pi backend
+  // Load wardrobe items isolated by user account and gender
   const loadWardrobe = useCallback(async (selectedGender = gender) => {
     setLoading(true);
-    const result = await fetchWardrobeItems(selectedGender);
+    const result = await fetchWardrobeItems(selectedGender, CURRENT_USER_ID);
     if (result.status === 'success') {
       setItems(result.items);
     } else {
@@ -46,14 +49,12 @@ export default function App() {
     loadWardrobe(gender);
   }, [gender, loadWardrobe]);
 
-  // Pull-to-refresh handler
   const onRefresh = async () => {
     setRefreshing(true);
     await loadWardrobe(gender);
     setRefreshing(false);
   };
 
-  // Expand Image Handler
   const handleOpenImage = (item) => {
     setSelectedItem(item);
     setModalVisible(true);
@@ -64,7 +65,6 @@ export default function App() {
     setSelectedItem(null);
   };
 
-  // Image Picker & Local Upload
   const handlePickAndUpload = async (useCamera = false) => {
     try {
       const permissionResult = useCamera
@@ -72,7 +72,7 @@ export default function App() {
         : await ImagePicker.requestMediaLibraryPermissionsAsync();
 
       if (!permissionResult.granted) {
-        Alert.alert('Permission Denied', 'Camera/Gallery access is required to upload clothing.');
+        Alert.alert('Permission Denied', 'Camera or photo gallery access is required.');
         return;
       }
 
@@ -108,14 +108,14 @@ export default function App() {
       formData.append('gender', gender);
 
       setUploading(true);
-      const uploadRes = await uploadGarmentImage(formData);
+      const uploadRes = await uploadGarmentImage(formData, CURRENT_USER_ID);
       setUploading(false);
 
       if (uploadRes.status === 'success') {
         Alert.alert('Success', 'Photo uploaded! Auto-tagging in progress.');
         loadWardrobe(gender);
       } else {
-        Alert.alert('Upload Failed', uploadRes.message || 'Server error occurred during upload.');
+        Alert.alert('Upload Failed', uploadRes.message || 'Server error during upload.');
       }
     } catch (err) {
       setUploading(false);
@@ -124,7 +124,6 @@ export default function App() {
     }
   };
 
-  // Render Item Card (Click to expand)
   const renderGarmentCard = ({ item }) => (
     <TouchableOpacity 
       style={styles.card} 
@@ -149,7 +148,7 @@ export default function App() {
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* Header with Atelier Luxury Styling */}
+      {/* Luxury Atelier Header */}
       <View style={styles.header}>
         <View style={styles.brandRow}>
           <Text style={styles.brandTitle}>ATELIER</Text>

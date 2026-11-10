@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "Atelier",
-    "slug": "Atelier",
+    "slug": "virtual-closet-app",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -10,9 +10,6 @@
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
       "backgroundColor": "#18181B"
-    },
-    "ios": {
-      "supportsTablet": true
     },
     "android": {
       "package": "com.atelier.app",
@@ -24,10 +21,7 @@
         "image": "./assets/splash-icon.png",
         "resizeMode": "contain",
         "backgroundColor": "#18181B"
-      },
-      "permissions": [
-        "android.permission.RECORD_AUDIO"
-      ]
+      }
     },
     "plugins": [
       [
@@ -37,12 +31,6 @@
           "cameraPermission": "Atelier needs access to your camera to take garment photos."
         }
       ]
-    ],
-    "extra": {
-      "eas": {
-        "projectId": "9e1b121e-7a18-43dc-9c8f-c5b6b0b4184a"
-      }
-    },
-    "owner": "meetpandyas-team"
+    ]
   }
 }

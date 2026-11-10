@@ -36,6 +36,9 @@ jobs:
       - name: 📦 Install Dependencies
         run: npm ci
 
+      - name: 🔍 Debug Expo Config
+        run: npx expo config --json
+
       - name: 🏗️ Build Android APK locally on Runner
         run: eas build --platform android --profile preview --local --non-interactive
 

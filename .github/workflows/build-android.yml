@@ -36,8 +36,8 @@ jobs:
       - name: 📦 Install Dependencies
         run: npm ci
 
-      - name: 🔍 Debug Expo Config
-        run: EXPO_DEBUG=1 npx expo config --json
+      #- name: 🔍 Debug Expo Config
+      #  run: EXPO_DEBUG=1 npx expo config --json
 
       - name: 🔍 Print Exact Stack Trace
         run: node node_modules/expo/bin/cli.js config --json

@@ -39,6 +39,9 @@ jobs:
       - name: 🔍 Debug Expo Config
         run: EXPO_DEBUG=1 npx expo config --json
 
+      - name: 🔍 Print Exact Stack Trace
+        run: node node_modules/expo/bin/cli.js config --json
+
       - name: 🏗️ Build Android APK locally on Runner
         run: eas build --platform android --profile preview --local --non-interactive
 

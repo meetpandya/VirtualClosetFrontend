@@ -5,8 +5,8 @@
     "owner": "meetpandyas-team",
     "version": "1.0.0",
     "orientation": "portrait",
+    "userInterfaceStyle": "default",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "dark",
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
@@ -14,13 +14,9 @@
     },
     "android": {
       "package": "com.atelier.app",
+      "usesCleartextTraffic": true,
       "adaptiveIcon": {
         "foregroundImage": "./assets/icon.png",
-        "backgroundColor": "#18181B"
-      },
-      "splash": {
-        "image": "./assets/splash-icon.png",
-        "resizeMode": "contain",
         "backgroundColor": "#18181B"
       },
       "permissions": [

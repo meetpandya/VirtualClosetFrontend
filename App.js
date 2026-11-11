@@ -53,34 +53,43 @@ export default function App() {
     const pickerResult = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsEditing: true,
-      quality: 0.8,
+      quality: 0.7, // Slightly increased compression
+      // CRITICAL FIX: Shrink the image on the client BEFORE network transfer
+      maxWidth: 800,
+      maxHeight: 800,
     });
 
     if (pickerResult.canceled) return;
 
-    const asset = pickerResult.assets[0];
-    const formData = new FormData();
-    formData.append('file', {
-      uri: asset.uri,
-      name: `garment_${Date.now()}.jpg`,
-      type: 'image/jpeg',
-    });
-    formData.append('gender', selectedGender);
-
+    // 1. Immediately trigger the UI to show the loading spinner
     setUploading(true);
-    try {
-      const res = await uploadGarmentImage(formData, userId);
-      if (res.status === 'success') {
-        // Refetch after small delay to let DB record register
-        setTimeout(() => loadGarments(), 800);
-      } else {
-        Alert.alert('Upload Failed', res.message);
+
+    // 2. Yield the JavaScript thread for 50ms so React Native actually renders the spinner 
+    // before the heavy FormData construction and network upload block the thread.
+    setTimeout(async () => {
+      try {
+        const asset = pickerResult.assets[0];
+        const formData = new FormData();
+        formData.append('file', {
+          uri: asset.uri,
+          name: `garment_${Date.now()}.jpg`,
+          type: 'image/jpeg',
+        });
+        formData.append('gender', selectedGender);
+
+        const res = await uploadGarmentImage(formData, userId);
+        if (res.status === 'success') {
+          // Refetch after a short delay to let DB record register
+          setTimeout(() => loadGarments(), 800);
+        } else {
+          Alert.alert('Upload Failed', res.message);
+        }
+      } catch (e) {
+        Alert.alert('Error', e.message);
+      } finally {
+        setUploading(false);
       }
-    } catch (e) {
-      Alert.alert('Error', e.message);
-    } finally {
-      setUploading(false);
-    }
+    }, 50);
   };
 
   const handleDeleteSingle = (itemId) => {

@@ -1,7 +1,7 @@
 import { Alert } from 'react-native';
 
 // Standard HTTP scheme for plain Uvicorn port 8000 over Tailscale
-export const API_BASE_URL = 'http://raspberrypi.tailf2a0e2.ts.net:8000/api';
+export const API_BASE_URL = 'https://raspberrypi.tailf2a0e2.ts.net/api';
 
 export const getImageUrl = (relativePath) => {
   if (!relativePath) return null;

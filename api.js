@@ -1,6 +1,6 @@
 import { Alert } from 'react-native';
 
-export const API_BASE_URL = 'http://raspberrypi.tailf2a0e2.ts.net:8000/api';
+export const API_BASE_URL = 'http://100.66.114.19:8000/api';
 
 export const getImageUrl = (relativePath) => {
   if (!relativePath) return null;

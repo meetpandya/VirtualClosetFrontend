@@ -40,5 +40,5 @@ jobs:
       - name: 📤 Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Atelier-Android-APK-${{ github.run_number }}
-          path: '*.apk'
+          name: atelier-apk-${{ github.sha }}
+          path: android/app/build/outputs/apk/release/app-release.apk

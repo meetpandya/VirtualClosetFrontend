@@ -7,7 +7,8 @@ import {
   FlatList, 
   Image, 
   Alert, 
-  ActivityIndicator 
+  ActivityIndicator,
+  RefreshControl
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { 
@@ -22,53 +23,40 @@ export default function App() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [selectedGender, setSelectedGender] = useState('Female');
   const [selectedIds, setSelectedIds] = useState([]);
   const [isSelectMode, setIsSelectMode] = useState(false);
 
   const userId = 'user_demo_123';
 
-  const loadGarments = async () => {
-    setLoading(true);
+  const loadGarments = async (isPullToRefresh = false) => {
+    if (isPullToRefresh) {
+      setRefreshing(true);
+    } else {
+      setLoading(true);
+    }
+
     const res = await fetchWardrobeItems(selectedGender, userId);
     if (res.status === 'success') {
       setItems(res.items);
     } else {
       Alert.alert('Error', res.message || 'Could not fetch items');
     }
+    
     setLoading(false);
+    setRefreshing(false);
   };
 
   useEffect(() => {
     loadGarments();
   }, [selectedGender]);
 
-  const handlePickAndUpload = async () => {
-    const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permissionResult.granted) {
-      Alert.alert('Permission Required', 'Permission to access camera roll is required!');
-      return;
-    }
-
-    const pickerResult = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
-      quality: 0.7, // Slightly increased compression
-      // CRITICAL FIX: Shrink the image on the client BEFORE network transfer
-      maxWidth: 800,
-      maxHeight: 800,
-    });
-
-    if (pickerResult.canceled) return;
-
-    // 1. Immediately trigger the UI to show the loading spinner
+  const processUpload = async (asset) => {
     setUploading(true);
-
-    // 2. Yield the JavaScript thread for 50ms so React Native actually renders the spinner 
-    // before the heavy FormData construction and network upload block the thread.
+    
     setTimeout(async () => {
       try {
-        const asset = pickerResult.assets[0];
         const formData = new FormData();
         formData.append('file', {
           uri: asset.uri,
@@ -79,8 +67,7 @@ export default function App() {
 
         const res = await uploadGarmentImage(formData, userId);
         if (res.status === 'success') {
-          // Refetch after a short delay to let DB record register
-          setTimeout(() => loadGarments(), 800);
+          setTimeout(() => loadGarments(), 500); 
         } else {
           Alert.alert('Upload Failed', res.message);
         }
@@ -90,6 +77,59 @@ export default function App() {
         setUploading(false);
       }
     }, 50);
+  };
+
+  const handleTakePhoto = async () => {
+    let { status } = await ImagePicker.getCameraPermissionsAsync();
+    if (status !== 'granted') {
+      const { status: newStatus } = await ImagePicker.requestCameraPermissionsAsync();
+      status = newStatus;
+    }
+
+    if (status !== 'granted') {
+      Alert.alert('Permission Required', 'Permission to access the camera is required!');
+      return;
+    }
+
+    setTimeout(async () => {
+      const pickerResult = await ImagePicker.launchCameraAsync({
+        allowsEditing: true,
+        quality: 0.7,
+        maxWidth: 800,
+        maxHeight: 800,
+      });
+
+      if (!pickerResult.canceled) {
+        processUpload(pickerResult.assets[0]);
+      }
+    }, 100);
+  };
+
+  const handlePickLibrary = async () => {
+    let { status } = await ImagePicker.getMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      const { status: newStatus } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      status = newStatus;
+    }
+
+    if (status !== 'granted') {
+      Alert.alert('Permission Required', 'Permission to access camera roll is required!');
+      return;
+    }
+
+    setTimeout(async () => {
+      const pickerResult = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        quality: 0.7,
+        maxWidth: 800,
+        maxHeight: 800,
+      });
+
+      if (!pickerResult.canceled) {
+        processUpload(pickerResult.assets[0]);
+      }
+    }, 100);
   };
 
   const handleDeleteSingle = (itemId) => {
@@ -150,9 +190,8 @@ export default function App() {
 
   return (
     <View style={styles.container}>
-      {/* Header Bar */}
       <View style={styles.header}>
-        <Text style={styles.title}>Atelier Wardrobe</Text>
+        <Text style={styles.title}>Atelier</Text>
         
         {isSelectMode ? (
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
@@ -170,7 +209,6 @@ export default function App() {
         )}
       </View>
 
-      {/* Gender Toggle & Upload Action Row */}
       <View style={styles.controlsRow}>
         <View style={styles.genderToggleContainer}>
           <TouchableOpacity 
@@ -187,20 +225,28 @@ export default function App() {
           </TouchableOpacity>
         </View>
 
-        <TouchableOpacity 
-          style={styles.uploadBtn} 
-          onPress={handlePickAndUpload}
-          disabled={uploading}
-        >
-          {uploading ? (
-            <ActivityIndicator color="#0F172A" />
-          ) : (
-            <Text style={styles.uploadBtnText}>+ Add Photo</Text>
-          )}
-        </TouchableOpacity>
+        <View style={styles.actionButtons}>
+          <TouchableOpacity 
+            style={styles.uploadBtn} 
+            onPress={handleTakePhoto}
+            disabled={uploading}
+          >
+            <Text style={styles.uploadBtnText}>📷</Text>
+          </TouchableOpacity>
+          <TouchableOpacity 
+            style={[styles.uploadBtn, { marginLeft: 8 }]} 
+            onPress={handlePickLibrary}
+            disabled={uploading}
+          >
+            {uploading ? (
+              <ActivityIndicator color="#0F172A" size="small" />
+            ) : (
+              <Text style={styles.uploadBtnText}>+ Add Photo</Text>
+            )}
+          </TouchableOpacity>
+        </View>
       </View>
 
-      {/* Content List */}
       {loading ? (
         <View style={styles.centered}>
           <ActivityIndicator size="large" color="#D4AF37" />
@@ -211,6 +257,13 @@ export default function App() {
           keyExtractor={(item) => item.id.toString()}
           numColumns={2}
           contentContainerStyle={styles.listContent}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={() => loadGarments(true)}
+              tintColor="#D4AF37"
+            />
+          }
           renderItem={({ item }) => {
             const isSelected = selectedIds.includes(item.id);
             return (
@@ -219,13 +272,16 @@ export default function App() {
                 style={[styles.card, isSelected && styles.selectedCard]}
                 onPress={() => isSelectMode ? toggleSelectItem(item.id) : null}
               >
-                <Image source={{ uri: getImageUrl(item.image_path) }} style={styles.image} />
+                <Image 
+                  source={{ uri: getImageUrl(item.image_path) }} 
+                  style={styles.image} 
+                  resizeMode="contain"
+                />
                 <View style={styles.cardDetails}>
                   <Text style={styles.itemName} numberOfLines={1}>{item.name}</Text>
                   <Text style={styles.itemCategory}>{item.category} • {item.color}</Text>
                 </View>
 
-                {/* Single Delete Trash Button */}
                 {!isSelectMode && (
                   <TouchableOpacity 
                     style={styles.trashIcon} 
@@ -257,7 +313,8 @@ const styles = StyleSheet.create({
   genderBtnActive: { backgroundColor: '#D4AF37' },
   genderBtnText: { color: '#94A3B8', fontSize: 13, fontWeight: '600' },
   genderBtnTextActive: { color: '#0F172A', fontWeight: '700' },
-  uploadBtn: { backgroundColor: '#D4AF37', paddingVertical: 8, paddingHorizontal: 14, borderRadius: 8 },
+  actionButtons: { flexDirection: 'row', alignItems: 'center' },
+  uploadBtn: { backgroundColor: '#D4AF37', paddingVertical: 8, paddingHorizontal: 14, borderRadius: 8, justifyContent: 'center', alignItems: 'center' },
   uploadBtnText: { color: '#0F172A', fontWeight: '700', fontSize: 14 },
   listContent: { paddingBottom: 24 },
   card: { flex: 0.5, margin: 6, backgroundColor: '#1E293B', borderRadius: 10, overflow: 'hidden', position: 'relative' },

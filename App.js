@@ -20,7 +20,7 @@ import * as ImagePicker from 'expo-image-picker';
 const API_BASE_URL = 'https://raspberrypi.tailf2a0e2.ts.net';
 
 export default function App() {
-  const [userSession, setUserSession] = useState(null); // { email, firstName, gender }
+  const [userSession, setUserSession] = useState(null);
   const [loadingSession, setLoadingSession] = useState(true);
 
   // Auth Form States
@@ -29,7 +29,7 @@ export default function App() {
   const [lastNameInput, setLastNameInput] = useState('');
   const [emailInput, setEmailInput] = useState('');
   const [passwordInput, setPasswordInput] = useState('');
-  const [genderInput, setGenderInput] = useState('Male'); // Default registration gender
+  const [genderInput, setGenderInput] = useState('Male');
   const [authLoading, setAuthLoading] = useState(false);
 
   // Wardrobe States
@@ -171,7 +171,6 @@ export default function App() {
         name: filename,
         type: 'image/jpeg',
       });
-      // Automatically use the gender saved to the user's profile
       formData.append('gender', userSession.gender);
 
       try {
@@ -205,6 +204,40 @@ export default function App() {
     }
   };
 
+  // Single Item Delete Function
+  const deleteSingleItem = (itemId, itemName) => {
+    Alert.alert(
+      'Delete Garment',
+      `Are you sure you want to delete "${itemName || 'this item'}"?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              const response = await fetch(`${API_BASE_URL}/api/items/${itemId}`, {
+                method: 'DELETE',
+                headers: {
+                  'Accept': 'application/json',
+                  'X-User-Id': userSession.email,
+                },
+              });
+
+              if (response.ok) {
+                fetchItems();
+              } else {
+                Alert.alert('Error', 'Failed to delete item.');
+              }
+            } catch (error) {
+              Alert.alert('Error', 'Network error during deletion.');
+            }
+          },
+        },
+      ]
+    );
+  };
+
   const deleteSelectedItems = async () => {
     if (selectedItemIds.length === 0) return;
 
@@ -212,6 +245,7 @@ export default function App() {
       const response = await fetch(`${API_BASE_URL}/api/items/batch-delete`, {
         method: 'DELETE',
         headers: {
+          'Accept': 'application/json',
           'Content-Type': 'application/json',
           'X-User-Id': userSession.email,
         },
@@ -223,7 +257,8 @@ export default function App() {
         setIsSelectMode(false);
         fetchItems();
       } else {
-        Alert.alert('Error', 'Failed to delete items.');
+        const errorData = await response.json();
+        Alert.alert('Error', errorData.detail || 'Failed to delete items.');
       }
     } catch (error) {
       Alert.alert('Error', 'Network error during deletion.');
@@ -238,7 +273,6 @@ export default function App() {
     );
   }
 
-  // --- SIGN IN / REGISTER UI SCREEN ---
   if (!userSession) {
     return (
       <SafeAreaView style={styles.container}>
@@ -320,7 +354,6 @@ export default function App() {
     );
   }
 
-  // --- MAIN WARDROBE DASHBOARD UI (Single Unified View) ---
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.headerRow}>
@@ -333,9 +366,8 @@ export default function App() {
         </TouchableOpacity>
       </View>
 
-      {/* Action controls (Gender toggle removed from UI) */}
       <View style={styles.controlsRow}>
-        <Text style={styles.wardrobeSubtitle}>Your Wardrobe</Text>
+        <Text style={styles.wardrobeSubtitle}>{userSession.gender}'s Wardrobe Collection</Text>
 
         <View style={styles.actionButtons}>
           <TouchableOpacity
@@ -376,7 +408,14 @@ export default function App() {
             <TouchableOpacity
               style={[styles.card, isSelected && styles.selectedCard]}
               activeOpacity={0.8}
-              onPress={() => (isSelectMode ? toggleSelectItem(item.id) : null)}
+              onPress={() => {
+                if (isSelectMode) {
+                  toggleSelectItem(item.id);
+                } else {
+                  // Single item delete option on tap when not in select mode
+                  deleteSingleItem(item.id, item.name);
+                }
+              }}
             >
               <Image source={{ uri: `${API_BASE_URL}${item.image_path}` }} style={styles.cardImage} resizeMode="contain" />
               <View style={styles.cardInfo}>

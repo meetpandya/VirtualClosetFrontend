@@ -236,16 +236,23 @@ export default function App() {
                 body: JSON.stringify({ item_ids: selectedItemIds }),
               });
 
+              // Safely check content type before parsing JSON to prevent crashes
+              const contentType = response.headers.get("content-type");
+              let data = {};
+              if (contentType && contentType.includes("application/json")) {
+                data = await response.json();
+              }
+
               if (response.ok) {
                 setSelectedItemIds([]);
                 setIsSelectMode(false);
                 fetchItems();
               } else {
-                const errorData = await response.json();
-                Alert.alert('Error', errorData.detail || 'Failed to delete items.');
+                Alert.alert('Error', data.detail || `Failed to delete items (HTTP ${response.status}).`);
               }
             } catch (error) {
-              Alert.alert('Error', 'Network error during deletion.');
+              console.error('Delete network error:', error);
+              Alert.alert('Error', 'Network error during deletion. Check your Tailscale connection.');
             }
           },
         },

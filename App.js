@@ -17,7 +17,7 @@ import {
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
 
-const API_BASE_URL = 'https://raspberrypi.tailf2a0e2.ts.net';
+const API_BASE_URL = 'http://100.112.122.109:8000';
 
 export default function App() {
   const [userSession, setUserSession] = useState(null);
@@ -204,7 +204,7 @@ export default function App() {
     }
   };
 
-  // Single Item Delete Function
+  // Single Item Delete Function triggered by the top-right 'X' badge
   const deleteSingleItem = (itemId, itemName) => {
     Alert.alert(
       'Delete Garment',
@@ -370,15 +370,18 @@ export default function App() {
         <Text style={styles.wardrobeSubtitle}>{userSession.gender}'s Wardrobe Collection</Text>
 
         <View style={styles.actionButtons}>
-          <TouchableOpacity
-            style={styles.secondaryButton}
-            onPress={() => {
-              setIsSelectMode(!isSelectMode);
-              setSelectedItemIds([]);
-            }}
-          >
-            <Text style={styles.secondaryButtonText}>{isSelectMode ? 'Cancel' : 'Select'}</Text>
-          </TouchableOpacity>
+          {/* If in select mode, show Cancel button */}
+          {isSelectMode ? (
+            <TouchableOpacity
+              style={styles.cancelBatchButton}
+              onPress={() => {
+                setIsSelectMode(false);
+                setSelectedItemIds([]);
+              }}
+            >
+              <Text style={styles.cancelBatchButtonText}>Cancel</Text>
+            </TouchableOpacity>
+          ) : null}
 
           <TouchableOpacity style={styles.addButton} onPress={pickImageAndUpload}>
             <Text style={styles.addButtonText}>+ Add Photo</Text>
@@ -386,6 +389,7 @@ export default function App() {
         </View>
       </View>
 
+      {/* Batch Delete Action Bar */}
       {isSelectMode && selectedItemIds.length > 0 && (
         <TouchableOpacity style={styles.deleteBar} onPress={deleteSelectedItems}>
           <Text style={styles.deleteBarText}>Delete Selected ({selectedItemIds.length})</Text>
@@ -412,8 +416,15 @@ export default function App() {
                 if (isSelectMode) {
                   toggleSelectItem(item.id);
                 } else {
-                  // Single item delete option on tap when not in select mode
-                  deleteSingleItem(item.id, item.name);
+                  // Normal tap opens garment detail view
+                  Alert.alert(item.name, `${item.category} - ${item.sub_type}\nColor: ${item.color}`);
+                }
+              }}
+              onLongPress={() => {
+                // Tap and hold enters batch selection and selects this item
+                if (!isSelectMode) {
+                  setIsSelectMode(true);
+                  setSelectedItemIds([item.id]);
                 }
               }}
             >
@@ -426,10 +437,22 @@ export default function App() {
                   {item.sub_type} • {item.color}
                 </Text>
               </View>
+
+              {/* Select Mode Checkbox */}
               {isSelectMode && (
                 <View style={[styles.checkbox, isSelected && styles.checkboxSelected]}>
                   {isSelected && <Text style={styles.checkmark}>✓</Text>}
                 </View>
+              )}
+
+              {/* Normal Mode: Top-Right 'X' Delete Badge */}
+              {!isSelectMode && (
+                <TouchableOpacity
+                  style={styles.singleDeleteBadge}
+                  onPress={() => deleteSingleItem(item.id, item.name)}
+                >
+                  <Text style={styles.singleDeleteText}>×</Text>
+                </TouchableOpacity>
               )}
             </TouchableOpacity>
           );
@@ -587,17 +610,16 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 8,
   },
-  secondaryButton: {
-    backgroundColor: '#1e293b',
+  cancelBatchButton: {
+    backgroundColor: '#334155',
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#334155',
   },
-  secondaryButtonText: {
+  cancelBatchButtonText: {
     color: '#f8fafc',
     fontSize: 13,
+    fontWeight: '600',
   },
   addButton: {
     backgroundColor: '#f59e0b',
@@ -678,6 +700,25 @@ const styles = StyleSheet.create({
     color: '#0f172a',
     fontWeight: 'bold',
     fontSize: 14,
+  },
+  singleDeleteBadge: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: 'rgba(239, 68, 68, 0.9)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#f8fafc',
+  },
+  singleDeleteText: {
+    color: '#fff',
+    fontWeight: 'bold',
+    fontSize: 16,
+    lineHeight: 18,
   },
   emptyContainer: {
     marginTop: 100,

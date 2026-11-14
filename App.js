@@ -17,10 +17,10 @@ import {
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
 
-const API_BASE_URL = 'https://raspberrypi.tailf2a0e2.ts.net';
+const API_BASE_URL = 'http://100.112.122.109:8000';
 
 export default function App() {
-  const [userSession, setUserSession] = useState(null); // { email, firstName }
+  const [userSession, setUserSession] = useState(null); // { email, firstName, gender }
   const [loadingSession, setLoadingSession] = useState(true);
 
   // Auth Form States
@@ -29,10 +29,10 @@ export default function App() {
   const [lastNameInput, setLastNameInput] = useState('');
   const [emailInput, setEmailInput] = useState('');
   const [passwordInput, setPasswordInput] = useState('');
+  const [genderInput, setGenderInput] = useState('Male'); // Default registration gender
   const [authLoading, setAuthLoading] = useState(false);
 
   // Wardrobe States
-  const [gender, setGender] = useState('Male');
   const [items, setItems] = useState([]);
   const [refreshing, setRefreshing] = useState(false);
   const [isSelectMode, setIsSelectMode] = useState(false);
@@ -46,7 +46,7 @@ export default function App() {
     if (userSession) {
       fetchItems();
     }
-  }, [userSession, gender]);
+  }, [userSession]);
 
   const checkPersistedSession = async () => {
     try {
@@ -79,6 +79,7 @@ export default function App() {
           last_name: lastNameInput.trim(),
           email: emailInput.trim(),
           password: passwordInput,
+          gender: genderInput,
         }
       : {
           email: emailInput.trim(),
@@ -98,6 +99,7 @@ export default function App() {
         const sessionData = {
           email: data.user_id,
           firstName: data.first_name,
+          gender: data.gender,
         };
         await AsyncStorage.setItem('@atelier_session', JSON.stringify(sessionData));
         setUserSession(sessionData);
@@ -132,7 +134,7 @@ export default function App() {
 
   const fetchItems = async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/api/items?gender=${gender}`, {
+      const response = await fetch(`${API_BASE_URL}/api/items`, {
         headers: { 'X-User-Id': userSession.email },
       });
       const data = await response.json();
@@ -169,7 +171,8 @@ export default function App() {
         name: filename,
         type: 'image/jpeg',
       });
-      formData.append('gender', gender);
+      // Automatically use the gender saved to the user's profile
+      formData.append('gender', userSession.gender);
 
       try {
         const response = await fetch(`${API_BASE_URL}/api/wardrobe/upload`, {
@@ -260,6 +263,22 @@ export default function App() {
                   value={lastNameInput}
                   onChangeText={setLastNameInput}
                 />
+
+                <Text style={styles.label}>Select Wardrobe Type:</Text>
+                <View style={styles.authGenderContainer}>
+                  <TouchableOpacity
+                    style={[styles.authGenderTab, genderInput === 'Male' && styles.authActiveGenderTab]}
+                    onPress={() => setGenderInput('Male')}
+                  >
+                    <Text style={[styles.authGenderText, genderInput === 'Male' && styles.authActiveGenderText]}>Male</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.authGenderTab, genderInput === 'Female' && styles.authActiveGenderTab]}
+                    onPress={() => setGenderInput('Female')}
+                  >
+                    <Text style={[styles.authGenderText, genderInput === 'Female' && styles.authActiveGenderText]}>Female</Text>
+                  </TouchableOpacity>
+                </View>
               </>
             )}
 
@@ -301,7 +320,7 @@ export default function App() {
     );
   }
 
-  // --- MAIN WARDROBE DASHBOARD UI ---
+  // --- MAIN WARDROBE DASHBOARD UI (Single Unified View) ---
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.headerRow}>
@@ -314,21 +333,9 @@ export default function App() {
         </TouchableOpacity>
       </View>
 
+      {/* Action controls (Gender toggle removed from UI) */}
       <View style={styles.controlsRow}>
-        <View style={styles.genderContainer}>
-          <TouchableOpacity
-            style={[styles.genderTab, gender === 'Female' && styles.activeGenderTab]}
-            onPress={() => setGender('Female')}
-          >
-            <Text style={[styles.genderText, gender === 'Female' && styles.activeGenderText]}>Female</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.genderTab, gender === 'Male' && styles.activeGenderTab]}
-            onPress={() => setGender('Male')}
-          >
-            <Text style={[styles.genderText, gender === 'Male' && styles.activeGenderText]}>Male</Text>
-          </TouchableOpacity>
-        </View>
+        <Text style={styles.wardrobeSubtitle}>{userSession.gender}'s Wardrobe Collection</Text>
 
         <View style={styles.actionButtons}>
           <TouchableOpacity
@@ -390,7 +397,7 @@ export default function App() {
         }}
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
-            <Text style={styles.emptyText}>No garments found for {gender}.</Text>
+            <Text style={styles.emptyText}>Your wardrobe is empty. Tap "+ Add Photo" to start!</Text>
           </View>
         }
       />
@@ -429,6 +436,36 @@ const styles = StyleSheet.create({
     marginBottom: 32,
     letterSpacing: 2,
     textTransform: 'uppercase',
+  },
+  label: {
+    color: '#94a3b8',
+    fontSize: 14,
+    marginBottom: 8,
+  },
+  authGenderContainer: {
+    flexDirection: 'row',
+    backgroundColor: '#1e293b',
+    borderRadius: 8,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#334155',
+    padding: 2,
+  },
+  authGenderTab: {
+    flex: 1,
+    paddingVertical: 10,
+    alignItems: 'center',
+    borderRadius: 6,
+  },
+  authActiveGenderTab: {
+    backgroundColor: '#f59e0b',
+  },
+  authGenderText: {
+    color: '#94a3b8',
+    fontWeight: '600',
+  },
+  authActiveGenderText: {
+    color: '#0f172a',
   },
   input: {
     backgroundColor: '#1e293b',
@@ -502,27 +539,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     marginBottom: 12,
   },
-  genderContainer: {
-    flexDirection: 'row',
-    backgroundColor: '#1e293b',
-    borderRadius: 8,
-    padding: 2,
-  },
-  genderTab: {
-    paddingHorizontal: 16,
-    paddingVertical: 6,
-    borderRadius: 6,
-  },
-  activeGenderTab: {
-    backgroundColor: '#f59e0b',
-  },
-  genderText: {
+  wardrobeSubtitle: {
     color: '#94a3b8',
     fontSize: 13,
-    fontWeight: '600',
-  },
-  activeGenderText: {
-    color: '#0f172a',
+    fontWeight: '500',
   },
   actionButtons: {
     flexDirection: 'row',
@@ -557,7 +577,6 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     paddingVertical: 10,
     borderRadius: 8,
-    alignItems: 'centervalue',
     alignItems: 'center',
   },
   deleteBarText: {
@@ -624,9 +643,11 @@ const styles = StyleSheet.create({
   emptyContainer: {
     marginTop: 100,
     alignItems: 'center',
+    paddingHorizontal: 20,
   },
   emptyText: {
     color: '#64748b',
     fontSize: 14,
+    textAlign: 'center',
   },
 });

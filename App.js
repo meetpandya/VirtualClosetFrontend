@@ -335,7 +335,7 @@ export default function App() {
 
       {/* Action controls (Gender toggle removed from UI) */}
       <View style={styles.controlsRow}>
-        <Text style={styles.wardrobeSubtitle}>{userSession.gender}'s Wardrobe Collection</Text>
+        <Text style={styles.wardrobeSubtitle}>Your Wardrobe</Text>
 
         <View style={styles.actionButtons}>
           <TouchableOpacity

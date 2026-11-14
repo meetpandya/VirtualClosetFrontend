@@ -9,7 +9,7 @@ export const getImageUrl = (relativePath) => {
   return `${hostRoot}${relativePath}`;
 };
 
-export const fetchWardrobeItems = async (gender = 'Female', userId = 'user_demo_123') => {
+export const fetchWardrobeItems = async (gender, userId) => {
   const targetUrl = `${API_BASE_URL}/items?gender=${gender}`;
 
   try {
@@ -34,7 +34,7 @@ export const fetchWardrobeItems = async (gender = 'Female', userId = 'user_demo_
   }
 };
 
-export const uploadGarmentImage = async (formData, userId = 'user_demo_123') => {
+export const uploadGarmentImage = async (formData, userId) => {
   const targetUrl = `${API_BASE_URL}/wardrobe/upload`;
 
   try {
@@ -59,7 +59,7 @@ export const uploadGarmentImage = async (formData, userId = 'user_demo_123') => 
   }
 };
 
-export const deleteWardrobeItem = async (itemId, userId = 'user_demo_123') => {
+export const deleteWardrobeItem = async (itemId, userId) => {
   const targetUrl = `${API_BASE_URL}/items/${itemId}`;
 
   try {
@@ -82,7 +82,7 @@ export const deleteWardrobeItem = async (itemId, userId = 'user_demo_123') => {
   }
 };
 
-export const deleteBatchWardrobeItems = async (itemIds = [], userId = 'user_demo_123') => {
+export const deleteBatchWardrobeItems = async (itemIds = [], userId) => {
   const targetUrl = `${API_BASE_URL}/items/batch-delete`;
 
   try {

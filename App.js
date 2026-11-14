@@ -1,329 +1,632 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  StyleSheet, 
-  Text, 
-  View, 
-  TouchableOpacity, 
-  FlatList, 
-  Image, 
-  Alert, 
+import {
+  StyleSheet,
+  Text,
+  View,
+  TextInput,
+  TouchableOpacity,
+  FlatList,
+  Image,
+  Alert,
   ActivityIndicator,
-  RefreshControl
+  SafeAreaView,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
-import { 
-  fetchWardrobeItems, 
-  uploadGarmentImage, 
-  deleteWardrobeItem, 
-  deleteBatchWardrobeItems, 
-  getImageUrl 
-} from './api';
+
+const API_BASE_URL = 'https://raspberrypi.tailf2a0e2.ts.net';
 
 export default function App() {
+  const [userSession, setUserSession] = useState(null); // { email, firstName }
+  const [loadingSession, setLoadingSession] = useState(true);
+
+  // Auth Form States
+  const [isRegistering, setIsRegistering] = useState(false);
+  const [firstNameInput, setFirstNameInput] = useState('');
+  const [lastNameInput, setLastNameInput] = useState('');
+  const [emailInput, setEmailInput] = useState('');
+  const [passwordInput, setPasswordInput] = useState('');
+  const [authLoading, setAuthLoading] = useState(false);
+
+  // Wardrobe States
+  const [gender, setGender] = useState('Male');
   const [items, setItems] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [uploading, setUploading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [selectedGender, setSelectedGender] = useState('Female');
-  const [selectedIds, setSelectedIds] = useState([]);
   const [isSelectMode, setIsSelectMode] = useState(false);
-
-  const userId = 'user_demo_123';
-
-  const loadGarments = async (isPullToRefresh = false) => {
-    if (isPullToRefresh) {
-      setRefreshing(true);
-    } else {
-      setLoading(true);
-    }
-
-    const res = await fetchWardrobeItems(selectedGender, userId);
-    if (res.status === 'success') {
-      setItems(res.items);
-    } else {
-      Alert.alert('Error', res.message || 'Could not fetch items');
-    }
-    
-    setLoading(false);
-    setRefreshing(false);
-  };
+  const [selectedItemIds, setSelectedItemIds] = useState([]);
 
   useEffect(() => {
-    loadGarments();
-  }, [selectedGender]);
+    checkPersistedSession();
+  }, []);
 
-  const processUpload = async (asset) => {
-    setUploading(true);
-    
-    setTimeout(async () => {
-      try {
-        const formData = new FormData();
-        formData.append('file', {
-          uri: asset.uri,
-          name: `garment_${Date.now()}.jpg`,
-          type: 'image/jpeg',
-        });
-        formData.append('gender', selectedGender);
+  useEffect(() => {
+    if (userSession) {
+      fetchItems();
+    }
+  }, [userSession, gender]);
 
-        const res = await uploadGarmentImage(formData, userId);
-        if (res.status === 'success') {
-          setTimeout(() => loadGarments(), 500); 
-        } else {
-          Alert.alert('Upload Failed', res.message);
+  const checkPersistedSession = async () => {
+    try {
+      const savedSession = await AsyncStorage.getItem('@atelier_session');
+      if (savedSession) {
+        setUserSession(JSON.parse(savedSession));
+      }
+    } catch (e) {
+      console.error('Failed to load session', e);
+    } finally {
+      setLoadingSession(false);
+    }
+  };
+
+  const handleAuth = async () => {
+    if (!emailInput.trim() || !passwordInput.trim()) {
+      Alert.alert('Error', 'Please enter your email and password.');
+      return;
+    }
+    if (isRegistering && !firstNameInput.trim()) {
+      Alert.alert('Error', 'Please enter your first name.');
+      return;
+    }
+
+    setAuthLoading(true);
+    const endpoint = isRegistering ? '/api/register' : '/api/login';
+    const payload = isRegistering
+      ? {
+          first_name: firstNameInput.trim(),
+          last_name: lastNameInput.trim(),
+          email: emailInput.trim(),
+          password: passwordInput,
         }
-      } catch (e) {
-        Alert.alert('Error', e.message);
-      } finally {
-        setUploading(false);
+      : {
+          email: emailInput.trim(),
+          password: passwordInput,
+        };
+
+    try {
+      const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        const sessionData = {
+          email: data.user_id,
+          firstName: data.first_name,
+        };
+        await AsyncStorage.setItem('@atelier_session', JSON.stringify(sessionData));
+        setUserSession(sessionData);
+        setEmailInput('');
+        setPasswordInput('');
+        setFirstNameInput('');
+        setLastNameInput('');
+      } else {
+        Alert.alert('Authentication Failed', data.detail || 'Something went wrong.');
       }
-    }, 50);
+    } catch (error) {
+      Alert.alert('Network Error', 'Could not connect to the Raspberry Pi server.');
+    } finally {
+      setAuthLoading(false);
+    }
   };
 
-  const handleTakePhoto = async () => {
-    let { status } = await ImagePicker.getCameraPermissionsAsync();
-    if (status !== 'granted') {
-      const { status: newStatus } = await ImagePicker.requestCameraPermissionsAsync();
-      status = newStatus;
-    }
+  const handleLogout = async () => {
+    Alert.alert('Logout', 'Are you sure you want to log out?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Logout',
+        style: 'destructive',
+        onPress: async () => {
+          await AsyncStorage.removeItem('@atelier_session');
+          setUserSession(null);
+          setItems([]);
+        },
+      },
+    ]);
+  };
 
-    if (status !== 'granted') {
-      Alert.alert('Permission Required', 'Permission to access the camera is required!');
+  const fetchItems = async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/items?gender=${gender}`, {
+        headers: { 'X-User-Id': userSession.email },
+      });
+      const data = await response.json();
+      if (data.status === 'success') {
+        setItems(data.items);
+      }
+    } catch (error) {
+      console.error('Failed to fetch items:', error);
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
+  const pickImageAndUpload = async () => {
+    const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permissionResult.granted) {
+      Alert.alert('Permission required', 'Camera roll permissions are needed!');
       return;
     }
 
-    setTimeout(async () => {
-      const pickerResult = await ImagePicker.launchCameraAsync({
-        allowsEditing: true,
-        quality: 0.7,
-        maxWidth: 800,
-        maxHeight: 800,
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      quality: 0.8,
+    });
+
+    if (!result.canceled && result.assets && result.assets.length > 0) {
+      const localUri = result.assets[0].uri;
+      const filename = localUri.split('/').pop() || `garment_${Date.now()}.jpg`;
+
+      const formData = new FormData();
+      formData.append('file', {
+        uri: localUri,
+        name: filename,
+        type: 'image/jpeg',
       });
+      formData.append('gender', gender);
 
-      if (!pickerResult.canceled) {
-        processUpload(pickerResult.assets[0]);
-      }
-    }, 100);
-  };
-
-  const handlePickLibrary = async () => {
-    let { status } = await ImagePicker.getMediaLibraryPermissionsAsync();
-    if (status !== 'granted') {
-      const { status: newStatus } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      status = newStatus;
-    }
-
-    if (status !== 'granted') {
-      Alert.alert('Permission Required', 'Permission to access camera roll is required!');
-      return;
-    }
-
-    setTimeout(async () => {
-      const pickerResult = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        allowsEditing: true,
-        quality: 0.7,
-        maxWidth: 800,
-        maxHeight: 800,
-      });
-
-      if (!pickerResult.canceled) {
-        processUpload(pickerResult.assets[0]);
-      }
-    }, 100);
-  };
-
-  const handleDeleteSingle = (itemId) => {
-    Alert.alert(
-      'Delete Garment',
-      'Are you sure you want to delete this garment?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            const res = await deleteWardrobeItem(itemId, userId);
-            if (res.status === 'success') {
-              setItems(prev => prev.filter(item => item.id !== itemId));
-            } else {
-              Alert.alert('Error', res.message || 'Failed to delete item.');
-            }
+      try {
+        const response = await fetch(`${API_BASE_URL}/api/wardrobe/upload`, {
+          method: 'POST',
+          headers: {
+            'X-User-Id': userSession.email,
+            'Content-Type': 'multipart/form-data',
           },
-        },
-      ]
-    );
-  };
+          body: formData,
+        });
 
-  const handleDeleteBatch = () => {
-    if (selectedIds.length === 0) return;
-
-    Alert.alert(
-      'Delete Selected Items',
-      `Are you sure you want to delete ${selectedIds.length} item(s)?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete All',
-          style: 'destructive',
-          onPress: async () => {
-            const res = await deleteBatchWardrobeItems(selectedIds, userId);
-            if (res.status === 'success') {
-              setItems(prev => prev.filter(item => !selectedIds.includes(item.id)));
-              setSelectedIds([]);
-              setIsSelectMode(false);
-            } else {
-              Alert.alert('Error', res.message || 'Failed to delete selected items.');
-            }
-          },
-        },
-      ]
-    );
+        if (response.ok) {
+          setTimeout(() => {
+            fetchItems();
+          }, 1000);
+        } else {
+          Alert.alert('Upload Failed', 'Server rejected the upload.');
+        }
+      } catch (error) {
+        Alert.alert('Error', 'Failed to upload image to Pi backend.');
+      }
+    }
   };
 
   const toggleSelectItem = (id) => {
-    if (selectedIds.includes(id)) {
-      setSelectedIds(selectedIds.filter(itemId => itemId !== id));
+    if (selectedItemIds.includes(id)) {
+      setSelectedItemIds(selectedItemIds.filter((item_id) => item_id !== id));
     } else {
-      setSelectedIds([...selectedIds, id]);
+      setSelectedItemIds([...selectedItemIds, id]);
     }
   };
 
+  const deleteSelectedItems = async () => {
+    if (selectedItemIds.length === 0) return;
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/items/batch-delete`, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-User-Id': userSession.email,
+        },
+        body: JSON.stringify({ item_ids: selectedItemIds }),
+      });
+
+      if (response.ok) {
+        setSelectedItemIds([]);
+        setIsSelectMode(false);
+        fetchItems();
+      } else {
+        Alert.alert('Error', 'Failed to delete items.');
+      }
+    } catch (error) {
+      Alert.alert('Error', 'Network error during deletion.');
+    }
+  };
+
+  if (loadingSession) {
+    return (
+      <View style={styles.centerContainer}>
+        <ActivityIndicator size="large" color="#f59e0b" />
+      </View>
+    );
+  }
+
+  // --- SIGN IN / REGISTER UI SCREEN ---
+  if (!userSession) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
+          <ScrollView contentContainerStyle={styles.authContainer}>
+            <Text style={styles.appTitle}>Atelier</Text>
+            <Text style={styles.appSubtitle}>Luxury Digital Wardrobe</Text>
+
+            {isRegistering && (
+              <>
+                <TextInput
+                  style={styles.input}
+                  placeholder="First Name"
+                  placeholderTextColor="#888"
+                  value={firstNameInput}
+                  onChangeText={setFirstNameInput}
+                />
+                <TextInput
+                  style={styles.input}
+                  placeholder="Last Name (Optional)"
+                  placeholderTextColor="#888"
+                  value={lastNameInput}
+                  onChangeText={setLastNameInput}
+                />
+              </>
+            )}
+
+            <TextInput
+              style={styles.input}
+              placeholder="Email Address"
+              placeholderTextColor="#888"
+              autoCapitalize="none"
+              keyboardType="email-address"
+              value={emailInput}
+              onChangeText={setEmailInput}
+            />
+            <TextInput
+              style={styles.input}
+              placeholder="Password"
+              placeholderTextColor="#888"
+              secureTextEntry
+              value={passwordInput}
+              onChangeText={setPasswordInput}
+            />
+
+            <TouchableOpacity style={styles.primaryButton} onPress={handleAuth} disabled={authLoading}>
+              {authLoading ? (
+                <ActivityIndicator color="#0f172a" />
+              ) : (
+                <Text style={styles.primaryButtonText}>{isRegistering ? 'Create Account' : 'Sign In'}</Text>
+              )}
+            </TouchableOpacity>
+
+            <TouchableOpacity onPress={() => setIsRegistering(!isRegistering)} style={styles.switchAuthText}>
+              <Text style={styles.switchTextNormal}>
+                {isRegistering ? 'Already have an account? ' : "Don't have an account? "}
+                <Text style={styles.switchTextHighlight}>{isRegistering ? 'Sign In' : 'Register'}</Text>
+              </Text>
+            </TouchableOpacity>
+          </ScrollView>
+        </KeyboardAvoidingView>
+      </SafeAreaView>
+    );
+  }
+
+  // --- MAIN WARDROBE DASHBOARD UI ---
   return (
-    <View style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.title}>Atelier</Text>
-        
-        {isSelectMode ? (
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-            <TouchableOpacity onPress={handleDeleteBatch} style={styles.deleteBatchBtn}>
-              <Text style={styles.deleteBatchText}>Delete ({selectedIds.length})</Text>
-            </TouchableOpacity>
-            <TouchableOpacity onPress={() => { setIsSelectMode(false); setSelectedIds([]); }}>
-              <Text style={styles.cancelText}>Cancel</Text>
-            </TouchableOpacity>
-          </View>
-        ) : (
-          <TouchableOpacity onPress={() => setIsSelectMode(true)}>
-            <Text style={styles.selectText}>Select Mode</Text>
-          </TouchableOpacity>
-        )}
+    <SafeAreaView style={styles.container}>
+      <View style={styles.headerRow}>
+        <View>
+          <Text style={styles.headerTitle}>Atelier</Text>
+          <Text style={styles.loggedUserText}>Welcome back, {userSession.firstName}!</Text>
+        </View>
+        <TouchableOpacity onPress={handleLogout} style={styles.logoutButton}>
+          <Text style={styles.logoutText}>Logout</Text>
+        </TouchableOpacity>
       </View>
 
       <View style={styles.controlsRow}>
-        <View style={styles.genderToggleContainer}>
-          <TouchableOpacity 
-            style={[styles.genderBtn, selectedGender === 'Female' && styles.genderBtnActive]}
-            onPress={() => setSelectedGender('Female')}
+        <View style={styles.genderContainer}>
+          <TouchableOpacity
+            style={[styles.genderTab, gender === 'Female' && styles.activeGenderTab]}
+            onPress={() => setGender('Female')}
           >
-            <Text style={[styles.genderBtnText, selectedGender === 'Female' && styles.genderBtnTextActive]}>Female</Text>
+            <Text style={[styles.genderText, gender === 'Female' && styles.activeGenderText]}>Female</Text>
           </TouchableOpacity>
-          <TouchableOpacity 
-            style={[styles.genderBtn, selectedGender === 'Male' && styles.genderBtnActive]}
-            onPress={() => setSelectedGender('Male')}
+          <TouchableOpacity
+            style={[styles.genderTab, gender === 'Male' && styles.activeGenderTab]}
+            onPress={() => setGender('Male')}
           >
-            <Text style={[styles.genderBtnText, selectedGender === 'Male' && styles.genderBtnTextActive]}>Male</Text>
+            <Text style={[styles.genderText, gender === 'Male' && styles.activeGenderText]}>Male</Text>
           </TouchableOpacity>
         </View>
 
         <View style={styles.actionButtons}>
-          <TouchableOpacity 
-            style={styles.uploadBtn} 
-            onPress={handleTakePhoto}
-            disabled={uploading}
+          <TouchableOpacity
+            style={styles.secondaryButton}
+            onPress={() => {
+              setIsSelectMode(!isSelectMode);
+              setSelectedItemIds([]);
+            }}
           >
-            <Text style={styles.uploadBtnText}>📷</Text>
+            <Text style={styles.secondaryButtonText}>{isSelectMode ? 'Cancel' : 'Select'}</Text>
           </TouchableOpacity>
-          <TouchableOpacity 
-            style={[styles.uploadBtn, { marginLeft: 8 }]} 
-            onPress={handlePickLibrary}
-            disabled={uploading}
-          >
-            {uploading ? (
-              <ActivityIndicator color="#0F172A" size="small" />
-            ) : (
-              <Text style={styles.uploadBtnText}>+ Add Photo</Text>
-            )}
+
+          <TouchableOpacity style={styles.addButton} onPress={pickImageAndUpload}>
+            <Text style={styles.addButtonText}>+ Add Photo</Text>
           </TouchableOpacity>
         </View>
       </View>
 
-      {loading ? (
-        <View style={styles.centered}>
-          <ActivityIndicator size="large" color="#D4AF37" />
-        </View>
-      ) : (
-        <FlatList
-          data={items}
-          keyExtractor={(item) => item.id.toString()}
-          numColumns={2}
-          contentContainerStyle={styles.listContent}
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={() => loadGarments(true)}
-              tintColor="#D4AF37"
-            />
-          }
-          renderItem={({ item }) => {
-            const isSelected = selectedIds.includes(item.id);
-            return (
-              <TouchableOpacity 
-                activeOpacity={0.8}
-                style={[styles.card, isSelected && styles.selectedCard]}
-                onPress={() => isSelectMode ? toggleSelectItem(item.id) : null}
-              >
-                <Image 
-                  source={{ uri: getImageUrl(item.image_path) }} 
-                  style={styles.image} 
-                  resizeMode="contain"
-                />
-                <View style={styles.cardDetails}>
-                  <Text style={styles.itemName} numberOfLines={1}>{item.name}</Text>
-                  <Text style={styles.itemCategory}>{item.category} • {item.color}</Text>
-                </View>
-
-                {!isSelectMode && (
-                  <TouchableOpacity 
-                    style={styles.trashIcon} 
-                    onPress={() => handleDeleteSingle(item.id)}
-                  >
-                    <Text style={styles.trashIconText}>✕</Text>
-                  </TouchableOpacity>
-                )}
-              </TouchableOpacity>
-            );
-          }}
-        />
+      {isSelectMode && selectedItemIds.length > 0 && (
+        <TouchableOpacity style={styles.deleteBar} onPress={deleteSelectedItems}>
+          <Text style={styles.deleteBarText}>Delete Selected ({selectedItemIds.length})</Text>
+        </TouchableOpacity>
       )}
-    </View>
+
+      <FlatList
+        data={items}
+        keyExtractor={(item) => item.id.toString()}
+        numColumns={2}
+        contentContainerStyle={styles.gridContainer}
+        refreshing={refreshing}
+        onRefresh={() => {
+          setRefreshing(true);
+          fetchItems();
+        }}
+        renderItem={({ item }) => {
+          const isSelected = selectedItemIds.includes(item.id);
+          return (
+            <TouchableOpacity
+              style={[styles.card, isSelected && styles.selectedCard]}
+              activeOpacity={0.8}
+              onPress={() => (isSelectMode ? toggleSelectItem(item.id) : null)}
+            >
+              <Image source={{ uri: `${API_BASE_URL}${item.image_path}` }} style={styles.cardImage} resizeMode="contain" />
+              <View style={styles.cardInfo}>
+                <Text style={styles.cardName} numberOfLines={1}>
+                  {item.name}
+                </Text>
+                <Text style={styles.cardSub} numberOfLines={1}>
+                  {item.sub_type} • {item.color}
+                </Text>
+              </View>
+              {isSelectMode && (
+                <View style={[styles.checkbox, isSelected && styles.checkboxSelected]}>
+                  {isSelected && <Text style={styles.checkmark}>✓</Text>}
+                </View>
+              )}
+            </TouchableOpacity>
+          );
+        }}
+        ListEmptyComponent={
+          <View style={styles.emptyContainer}>
+            <Text style={styles.emptyText}>No garments found for {gender}.</Text>
+          </View>
+        }
+      />
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, paddingTop: 54, paddingHorizontal: 16, backgroundColor: '#0F172A' },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
-  title: { fontSize: 24, fontWeight: '700', color: '#E2E8F0', letterSpacing: 0.5 },
-  selectText: { color: '#D4AF37', fontSize: 15, fontWeight: '600' },
-  cancelText: { color: '#94A3B8', fontSize: 15 },
-  deleteBatchBtn: { backgroundColor: '#EF4444', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6 },
-  deleteBatchText: { color: '#FFFFFF', fontWeight: '700', fontSize: 13 },
-  controlsRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
-  genderToggleContainer: { flexDirection: 'row', backgroundColor: '#1E293B', borderRadius: 8, padding: 3 },
-  genderBtn: { paddingVertical: 6, paddingHorizontal: 14, borderRadius: 6 },
-  genderBtnActive: { backgroundColor: '#D4AF37' },
-  genderBtnText: { color: '#94A3B8', fontSize: 13, fontWeight: '600' },
-  genderBtnTextActive: { color: '#0F172A', fontWeight: '700' },
-  actionButtons: { flexDirection: 'row', alignItems: 'center' },
-  uploadBtn: { backgroundColor: '#D4AF37', paddingVertical: 8, paddingHorizontal: 14, borderRadius: 8, justifyContent: 'center', alignItems: 'center' },
-  uploadBtnText: { color: '#0F172A', fontWeight: '700', fontSize: 14 },
-  listContent: { paddingBottom: 24 },
-  card: { flex: 0.5, margin: 6, backgroundColor: '#1E293B', borderRadius: 10, overflow: 'hidden', position: 'relative' },
-  selectedCard: { borderWidth: 2, borderColor: '#EF4444' },
-  image: { width: '100%', height: 160, backgroundColor: '#334155' },
-  cardDetails: { padding: 8 },
-  itemName: { color: '#F8FAFC', fontSize: 13, fontWeight: '600' },
-  itemCategory: { color: '#94A3B8', fontSize: 11, marginTop: 2 },
-  trashIcon: { position: 'absolute', top: 8, right: 8, backgroundColor: 'rgba(15, 23, 42, 0.75)', width: 26, height: 26, borderRadius: 13, alignItems: 'center', justifyContent: 'center' },
-  trashIconText: { color: '#EF4444', fontWeight: 'bold', fontSize: 12 },
-  centered: { flex: 1, justifyContent: 'center', alignItems: 'center' }
+  centerContainer: {
+    flex: 1,
+    backgroundColor: '#0f172a',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  container: {
+    flex: 1,
+    backgroundColor: '#0f172a',
+  },
+  authContainer: {
+    flexGrow: 1,
+    justifyContent: 'center',
+    paddingHorizontal: 24,
+    paddingVertical: 40,
+  },
+  appTitle: {
+    fontSize: 36,
+    fontWeight: 'bold',
+    color: '#f8fafc',
+    textAlign: 'center',
+    letterSpacing: 1,
+  },
+  appSubtitle: {
+    fontSize: 14,
+    color: '#94a3b8',
+    textAlign: 'center',
+    marginBottom: 32,
+    letterSpacing: 2,
+    textTransform: 'uppercase',
+  },
+  input: {
+    backgroundColor: '#1e293b',
+    color: '#f8fafc',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderRadius: 8,
+    fontSize: 16,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#334155',
+  },
+  primaryButton: {
+    backgroundColor: '#f59e0b',
+    paddingVertical: 14,
+    borderRadius: 8,
+    alignItems: 'center',
+    marginTop: 8,
+  },
+  primaryButtonText: {
+    color: '#0f172a',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  switchAuthText: {
+    marginTop: 20,
+    alignItems: 'center',
+  },
+  switchTextNormal: {
+    color: '#94a3b8',
+    fontSize: 14,
+  },
+  switchTextHighlight: {
+    color: '#f59e0b',
+    fontWeight: 'bold',
+  },
+  headerRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  headerTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#f8fafc',
+  },
+  loggedUserText: {
+    fontSize: 13,
+    color: '#f59e0b',
+    fontWeight: '600',
+  },
+  logoutButton: {
+    backgroundColor: '#1e293b',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#334155',
+  },
+  logoutText: {
+    color: '#ef4444',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  controlsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    marginBottom: 12,
+  },
+  genderContainer: {
+    flexDirection: 'row',
+    backgroundColor: '#1e293b',
+    borderRadius: 8,
+    padding: 2,
+  },
+  genderTab: {
+    paddingHorizontal: 16,
+    paddingVertical: 6,
+    borderRadius: 6,
+  },
+  activeGenderTab: {
+    backgroundColor: '#f59e0b',
+  },
+  genderText: {
+    color: '#94a3b8',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  activeGenderText: {
+    color: '#0f172a',
+  },
+  actionButtons: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  secondaryButton: {
+    backgroundColor: '#1e293b',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#334155',
+  },
+  secondaryButtonText: {
+    color: '#f8fafc',
+    fontSize: 13,
+  },
+  addButton: {
+    backgroundColor: '#f59e0b',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 8,
+  },
+  addButtonText: {
+    color: '#0f172a',
+    fontSize: 13,
+    fontWeight: 'bold',
+  },
+  deleteBar: {
+    backgroundColor: '#ef4444',
+    marginHorizontal: 16,
+    marginBottom: 12,
+    paddingVertical: 10,
+    borderRadius: 8,
+    alignItems: 'centervalue',
+    alignItems: 'center',
+  },
+  deleteBarText: {
+    color: '#fff',
+    fontWeight: 'bold',
+    fontSize: 14,
+  },
+  gridContainer: {
+    paddingHorizontal: 10,
+  },
+  card: {
+    flex: 1,
+    backgroundColor: '#1e293b',
+    margin: 6,
+    borderRadius: 12,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#334155',
+  },
+  selectedCard: {
+    borderColor: '#f59e0b',
+    borderWidth: 2,
+  },
+  cardImage: {
+    width: '100%',
+    height: 160,
+    backgroundColor: '#0f172a',
+  },
+  cardInfo: {
+    padding: 10,
+  },
+  cardName: {
+    color: '#f8fafc',
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
+  cardSub: {
+    color: '#94a3b8',
+    fontSize: 11,
+    marginTop: 2,
+  },
+  checkbox: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    borderWidth: 2,
+    borderColor: '#fff',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  checkboxSelected: {
+    backgroundColor: '#f59e0b',
+    borderColor: '#f59e0b',
+  },
+  checkmark: {
+    color: '#0f172a',
+    fontWeight: 'bold',
+    fontSize: 14,
+  },
+  emptyContainer: {
+    marginTop: 100,
+    alignItems: 'center',
+  },
+  emptyText: {
+    color: '#64748b',
+    fontSize: 14,
+  },
 });

@@ -12,7 +12,8 @@ import {
   SafeAreaView,
   KeyboardAvoidingView,
   Platform,
-  ScrollView
+  ScrollView,
+  Modal
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
@@ -37,6 +38,9 @@ export default function App() {
   const [refreshing, setRefreshing] = useState(false);
   const [isSelectMode, setIsSelectMode] = useState(false);
   const [selectedItemIds, setSelectedItemIds] = useState([]);
+
+  // Enlarged Garment Modal State
+  const [enlargedItem, setEnlargedItem] = useState(null);
 
   useEffect(() => {
     checkPersistedSession();
@@ -198,17 +202,23 @@ export default function App() {
 
   const toggleSelectItem = (id) => {
     if (selectedItemIds.includes(id)) {
-      setSelectedItemIds(selectedItemIds.filter((item_id) => item_id !== id));
+      const updated = selectedItemIds.filter((item_id) => item_id !== id);
+      setSelectedItemIds(updated);
+      if (updated.length === 0) {
+        setIsSelectMode(false);
+      }
     } else {
       setSelectedItemIds([...selectedItemIds, id]);
     }
   };
 
-  // Single Item Delete Function triggered by the top-right 'X' badge
-  const deleteSingleItem = (itemId, itemName) => {
+  // Unified batch delete function handles both single and multiple selections safely
+  const deleteSelectedItems = async () => {
+    if (selectedItemIds.length === 0) return;
+
     Alert.alert(
-      'Delete Garment',
-      `Are you sure you want to delete "${itemName || 'this item'}"?`,
+      'Delete Garments',
+      `Are you sure you want to delete ${selectedItemIds.length} selected item(s)?`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -216,18 +226,23 @@ export default function App() {
           style: 'destructive',
           onPress: async () => {
             try {
-              const response = await fetch(`${API_BASE_URL}/api/items/${itemId}`, {
+              const response = await fetch(`${API_BASE_URL}/api/items/batch-delete`, {
                 method: 'DELETE',
                 headers: {
                   'Accept': 'application/json',
+                  'Content-Type': 'application/json',
                   'X-User-Id': userSession.email,
                 },
+                body: JSON.stringify({ item_ids: selectedItemIds }),
               });
 
               if (response.ok) {
+                setSelectedItemIds([]);
+                setIsSelectMode(false);
                 fetchItems();
               } else {
-                Alert.alert('Error', 'Failed to delete item.');
+                const errorData = await response.json();
+                Alert.alert('Error', errorData.detail || 'Failed to delete items.');
               }
             } catch (error) {
               Alert.alert('Error', 'Network error during deletion.');
@@ -236,33 +251,6 @@ export default function App() {
         },
       ]
     );
-  };
-
-  const deleteSelectedItems = async () => {
-    if (selectedItemIds.length === 0) return;
-
-    try {
-      const response = await fetch(`${API_BASE_URL}/api/items/batch-delete`, {
-        method: 'DELETE',
-        headers: {
-          'Accept': 'application/json',
-          'Content-Type': 'application/json',
-          'X-User-Id': userSession.email,
-        },
-        body: JSON.stringify({ item_ids: selectedItemIds }),
-      });
-
-      if (response.ok) {
-        setSelectedItemIds([]);
-        setIsSelectMode(false);
-        fetchItems();
-      } else {
-        const errorData = await response.json();
-        Alert.alert('Error', errorData.detail || 'Failed to delete items.');
-      }
-    } catch (error) {
-      Alert.alert('Error', 'Network error during deletion.');
-    }
   };
 
   if (loadingSession) {
@@ -367,10 +355,11 @@ export default function App() {
       </View>
 
       <View style={styles.controlsRow}>
-        <Text style={styles.wardrobeSubtitle}>{userSession.gender}'s Wardrobe Collection</Text>
+        <Text style={styles.wardrobeSubtitle}>
+          {isSelectMode ? `${selectedItemIds.length} Selected` : `${userSession.gender}'s Wardrobe`}
+        </Text>
 
         <View style={styles.actionButtons}>
-          {/* If in select mode, show Cancel button */}
           {isSelectMode ? (
             <TouchableOpacity
               style={styles.cancelBatchButton}
@@ -389,7 +378,7 @@ export default function App() {
         </View>
       </View>
 
-      {/* Batch Delete Action Bar */}
+      {/* Delete Action Bar */}
       {isSelectMode && selectedItemIds.length > 0 && (
         <TouchableOpacity style={styles.deleteBar} onPress={deleteSelectedItems}>
           <Text style={styles.deleteBarText}>Delete Selected ({selectedItemIds.length})</Text>
@@ -416,12 +405,12 @@ export default function App() {
                 if (isSelectMode) {
                   toggleSelectItem(item.id);
                 } else {
-                  // Normal tap opens garment detail view
-                  Alert.alert(item.name, `${item.category} - ${item.sub_type}\nColor: ${item.color}`);
+                  // Tap enlarges the garment image in a modal view
+                  setEnlargedItem(item);
                 }
               }}
               onLongPress={() => {
-                // Tap and hold enters batch selection and selects this item
+                // Tap and hold enters batch selection mode and selects this card
                 if (!isSelectMode) {
                   setIsSelectMode(true);
                   setSelectedItemIds([item.id]);
@@ -438,21 +427,11 @@ export default function App() {
                 </Text>
               </View>
 
-              {/* Select Mode Checkbox */}
+              {/* Selection Checkbox Overlay */}
               {isSelectMode && (
                 <View style={[styles.checkbox, isSelected && styles.checkboxSelected]}>
                   {isSelected && <Text style={styles.checkmark}>✓</Text>}
                 </View>
-              )}
-
-              {/* Normal Mode: Top-Right 'X' Delete Badge */}
-              {!isSelectMode && (
-                <TouchableOpacity
-                  style={styles.singleDeleteBadge}
-                  onPress={() => deleteSingleItem(item.id, item.name)}
-                >
-                  <Text style={styles.singleDeleteText}>×</Text>
-                </TouchableOpacity>
               )}
             </TouchableOpacity>
           );
@@ -463,6 +442,35 @@ export default function App() {
           </View>
         }
       />
+
+      {/* Enlarged Garment Modal View */}
+      <Modal
+        visible={enlargedItem !== null}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setEnlargedItem(null)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <TouchableOpacity style={styles.modalCloseButton} onPress={() => setEnlargedItem(null)}>
+              <Text style={styles.modalCloseText}>✕</Text>
+            </TouchableOpacity>
+            {enlargedItem && (
+              <>
+                <Image
+                  source={{ uri: `${API_BASE_URL}${enlargedItem.image_path}` }}
+                  style={styles.enlargedImage}
+                  resizeMode="contain"
+                />
+                <Text style={styles.modalTitle}>{enlargedItem.name}</Text>
+                <Text style={styles.modalSub}>
+                  {enlargedItem.category} • {enlargedItem.sub_type} • {enlargedItem.color}
+                </Text>
+              </>
+            )}
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -701,25 +709,6 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     fontSize: 14,
   },
-  singleDeleteBadge: {
-    position: 'absolute',
-    top: 8,
-    right: 8,
-    width: 26,
-    height: 26,
-    borderRadius: 13,
-    backgroundColor: 'rgba(239, 68, 68, 0.9)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#f8fafc',
-  },
-  singleDeleteText: {
-    color: '#fff',
-    fontWeight: 'bold',
-    fontSize: 16,
-    lineHeight: 18,
-  },
   emptyContainer: {
     marginTop: 100,
     alignItems: 'center',
@@ -728,6 +717,51 @@ const styles = StyleSheet.create({
   emptyText: {
     color: '#64748b',
     fontSize: 14,
+    textAlign: 'center',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.85)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  modalContent: {
+    width: '100%',
+    backgroundColor: '#1e293b',
+    borderRadius: 16,
+    padding: 20,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#334155',
+  },
+  modalCloseButton: {
+    alignSelf: 'flex-end',
+    padding: 4,
+    marginBottom: 8,
+  },
+  modalCloseText: {
+    color: '#94a3b8',
+    fontSize: 22,
+    fontWeight: 'bold',
+  },
+  enlargedImage: {
+    width: '100%',
+    height: 320,
+    backgroundColor: '#0f172a',
+    borderRadius: 8,
+    marginBottom: 16,
+  },
+  modalTitle: {
+    color: '#f8fafc',
+    fontSize: 18,
+    fontWeight: 'bold',
+    textAlign: 'center',
+    marginBottom: 4,
+  },
+  modalSub: {
+    color: '#94a3b8',
+    fontSize: 13,
     textAlign: 'center',
   },
 });

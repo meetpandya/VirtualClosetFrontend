@@ -17,7 +17,7 @@ import {
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
 
-const API_BASE_URL = 'http://100.112.122.109:8000';
+const API_BASE_URL = 'https://raspberrypi.tailf2a0e2.ts.net';
 
 export default function App() {
   const [userSession, setUserSession] = useState(null);

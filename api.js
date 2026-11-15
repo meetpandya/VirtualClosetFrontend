@@ -36,6 +36,9 @@ export const fetchWardrobeItems = async (userId) => {
 export const deleteBatchWardrobeItems = async (itemIds = [], userId) => {
   const targetUrl = `${API_BASE_URL}/items/batch-delete`;
 
+  // Ensure item IDs are strictly sent as integers to match List[int]
+  const numericIds = itemIds.map(id => Number(id));
+
   try {
     const response = await fetch(targetUrl, {
       method: 'DELETE',
@@ -44,10 +47,12 @@ export const deleteBatchWardrobeItems = async (itemIds = [], userId) => {
         'Content-Type': 'application/json',
         'X-User-Id': userId,
       },
-      body: JSON.stringify({ item_ids: itemIds }),
+      body: JSON.stringify({ item_ids: numericIds }),
     });
 
     if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`Server returned HTTP ${response.status}:`, errorText);
       throw new Error(`Server returned HTTP ${response.status}`);
     }
 

@@ -37,6 +37,7 @@ export default function App() {
   const [refreshing, setRefreshing] = useState(false);
   const [isSelectMode, setIsSelectMode] = useState(false);
   const [selectedItemIds, setSelectedItemIds] = useState([]);
+  const [uploadProgress, setUploadProgress] = useState(null);
 
   // Enlarged Garment Modal State
   const [enlargedItem, setEnlargedItem] = useState(null);
@@ -99,8 +100,8 @@ export default function App() {
       });
 
       let data = {};
-      const contentType = response.headers.get("content-type");
-      if (contentType && contentType.includes("application/json")) {
+      const contentType = response.headers.get('content-type');
+      if (contentType && contentType.includes('application/json')) {
         data = await response.json();
       }
 
@@ -136,6 +137,8 @@ export default function App() {
           await AsyncStorage.removeItem('@atelier_session');
           setUserSession(null);
           setItems([]);
+          setIsSelectMode(false);
+          setSelectedItemIds([]);
         },
       },
     ]);
@@ -161,50 +164,68 @@ export default function App() {
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsMultipleSelection: true,
+        selectionLimit: 10,
         allowsEditing: false,
         quality: 0.8,
       });
 
       if (!result.canceled && result.assets && result.assets.length > 0) {
-        const localUri = result.assets[0].uri;
-        const filename = localUri.split('/').pop() || `garment_${Date.now()}.jpg`;
+        const assets = result.assets;
+        const uploadUrl = `${API_BASE_URL}/wardrobe/upload`;
+        let failedCount = 0;
 
-        const formData = new FormData();
-        formData.append('file', {
-          uri: localUri,
-          name: filename,
-          type: 'image/jpeg',
-        });
-        formData.append('gender', userSession.gender);
+        for (let i = 0; i < assets.length; i++) {
+          setUploadProgress(`Uploading ${i + 1}/${assets.length}...`);
+          const asset = assets[i];
+          const localUri = asset.uri;
+          const filename = asset.fileName || localUri.split('/').pop() || `garment_${Date.now()}_${i}.jpg`;
 
-        const uploadUrl = API_BASE_URL.endsWith('/api')
-          ? `${API_BASE_URL}/wardrobe/upload`
-          : `${API_BASE_URL}/api/wardrobe/upload`;
+          const formData = new FormData();
+          formData.append('file', {
+            uri: localUri,
+            name: filename,
+            type: asset.mimeType || 'image/jpeg',
+          });
+          formData.append('gender', userSession.gender);
 
-        const response = await fetch(uploadUrl, {
-          method: 'POST',
-          headers: {
-            'X-User-Id': userSession.email,
-          },
-          body: formData,
-        });
+          try {
+            const response = await fetch(uploadUrl, {
+              method: 'POST',
+              headers: {
+                'X-User-Id': userSession.email,
+              },
+              body: formData,
+            });
 
-        if (response.ok) {
-          setTimeout(() => {
-            fetchItems();
-          }, 1500);
-        } else {
-          Alert.alert('Upload Failed', 'Server rejected the upload.');
+            if (!response.ok) {
+              failedCount++;
+            }
+          } catch (err) {
+            failedCount++;
+          }
+        }
+
+        setUploadProgress(null);
+        fetchItems();
+
+        setTimeout(() => {
+          fetchItems();
+        }, 3000 * Math.min(assets.length, 4));
+
+        if (failedCount > 0) {
+          Alert.alert('Partial Upload', `${failedCount} of ${assets.length} image(s) failed to upload.`);
         }
       }
     } catch (error) {
-      Alert.alert('Error', 'Failed to open gallery or upload image.');
+      setUploadProgress(null);
+      Alert.alert('Error', 'Failed to open gallery or upload images.');
     }
   };
 
   const toggleSelectItem = (id) => {
     if (selectedItemIds.includes(id)) {
-      const updated = selectedItemIds.filter((item_id) => item_id !== id);
+      const updated = selectedItemIds.filter((itemId) => itemId !== id);
       setSelectedItemIds(updated);
       if (updated.length === 0) {
         setIsSelectMode(false);
@@ -279,13 +300,17 @@ export default function App() {
                     style={[styles.authGenderTab, genderInput === 'Male' && styles.authActiveGenderTab]}
                     onPress={() => setGenderInput('Male')}
                   >
-                    <Text style={[styles.authGenderText, genderInput === 'Male' && styles.authActiveGenderText]}>Male</Text>
+                    <Text style={[styles.authGenderText, genderInput === 'Male' && styles.authActiveGenderText]}>
+                      Male
+                    </Text>
                   </TouchableOpacity>
                   <TouchableOpacity
                     style={[styles.authGenderTab, genderInput === 'Female' && styles.authActiveGenderTab]}
                     onPress={() => setGenderInput('Female')}
                   >
-                    <Text style={[styles.authGenderText, genderInput === 'Female' && styles.authActiveGenderText]}>Female</Text>
+                    <Text style={[styles.authGenderText, genderInput === 'Female' && styles.authActiveGenderText]}>
+                      Female
+                    </Text>
                   </TouchableOpacity>
                 </View>
               </>
@@ -342,6 +367,10 @@ export default function App() {
       </View>
 
       <View style={styles.controlsRow}>
+        <Text style={styles.wardrobeSubtitle}>
+          {isSelectMode ? `${selectedItemIds.length} Selected` : `${userSession.gender}'s Wardrobe`}
+        </Text>
+
         <View style={styles.actionButtons}>
           {isSelectMode ? (
             <TouchableOpacity
@@ -355,13 +384,16 @@ export default function App() {
             </TouchableOpacity>
           ) : null}
 
-          <TouchableOpacity style={styles.addButton} onPress={pickImageAndUpload}>
-            <Text style={styles.addButtonText}>+ Add Photo</Text>
+          <TouchableOpacity
+            style={[styles.addButton, uploadProgress && { opacity: 0.7 }]}
+            onPress={pickImageAndUpload}
+            disabled={uploadProgress !== null}
+          >
+            <Text style={styles.addButtonText}>{uploadProgress || '+ Add Photo'}</Text>
           </TouchableOpacity>
         </View>
       </View>
 
-      {/* Delete Action Bar */}
       {isSelectMode && selectedItemIds.length > 0 && (
         <TouchableOpacity style={styles.deleteBar} onPress={deleteSelectedItems}>
           <Text style={styles.deleteBarText}>Delete Selected ({selectedItemIds.length})</Text>
@@ -398,7 +430,11 @@ export default function App() {
                 }
               }}
             >
-              <Image source={{ uri: `${HOST_ROOT}${item.image_path}` }} style={styles.cardImage} resizeMode="contain" />
+              <Image
+                source={{ uri: `${HOST_ROOT}${item.image_path}` }}
+                style={styles.cardImage}
+                resizeMode="contain"
+              />
               <View style={styles.cardInfo}>
                 <Text style={styles.cardName} numberOfLines={1}>
                   {item.name}
@@ -423,7 +459,6 @@ export default function App() {
         }
       />
 
-      {/* Enlarged Garment Modal View */}
       <Modal
         visible={enlargedItem !== null}
         transparent={true}

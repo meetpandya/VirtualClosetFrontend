@@ -1,5 +1,3 @@
-import { Alert } from 'react-native';
-
 export const API_BASE_URL = 'https://raspberrypi.tailf2a0e2.ts.net/api';
 
 export const getImageUrl = (relativePath) => {
@@ -35,9 +33,7 @@ export const fetchWardrobeItems = async (userId) => {
 
 export const deleteBatchWardrobeItems = async (itemIds = [], userId) => {
   const targetUrl = `${API_BASE_URL}/items/batch-delete`;
-
-  // Ensure item IDs are strictly sent as integers to match List[int]
-  const numericIds = itemIds.map(id => Number(id));
+  const numericIds = itemIds.map((id) => Number(id));
 
   try {
     const response = await fetch(targetUrl, {

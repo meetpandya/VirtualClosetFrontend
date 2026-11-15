@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   StyleSheet,
   Text,
@@ -13,11 +13,13 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
-  Modal
+  Modal,
+  Animated
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
-import { API_BASE_URL, deleteBatchWardrobeItems } from './api';
+import * as Location from 'expo-location';
+import { API_BASE_URL, deleteBatchWardrobeItems, suggestWardrobeOutfit } from './api';
 
 const FEMALE_CATEGORIES = [
   'All',
@@ -45,6 +47,9 @@ const MALE_CATEGORIES = [
   'Shoes',
 ];
 
+const FEMALE_MOODS = ['Casual', 'Work', 'Date', 'Cute'];
+const MALE_MOODS = ['Casual', 'Work', 'Date'];
+
 export default function App() {
   const [userSession, setUserSession] = useState(null);
   const [loadingSession, setLoadingSession] = useState(true);
@@ -58,6 +63,9 @@ export default function App() {
   const [genderInput, setGenderInput] = useState('Male');
   const [authLoading, setAuthLoading] = useState(false);
 
+  // Main View Tab: 'wardrobe' | 'stylist'
+  const [activeTab, setActiveTab] = useState('wardrobe');
+
   // Wardrobe States
   const [items, setItems] = useState([]);
   const [selectedCategory, setSelectedCategory] = useState('All');
@@ -65,6 +73,17 @@ export default function App() {
   const [isSelectMode, setIsSelectMode] = useState(false);
   const [selectedItemIds, setSelectedItemIds] = useState([]);
   const [uploadProgress, setUploadProgress] = useState(null);
+
+  // Outfit Stylist & Location States
+  const [selectedMood, setSelectedMood] = useState('Casual');
+  const [tempUnit, setTempUnit] = useState('C'); // 'C' or 'F'
+  const tempSlideAnim = useRef(new Animated.Value(0)).current;
+  const [showLocationDisclaimer, setShowLocationDisclaimer] = useState(false);
+  const [pendingMoodForSuggestion, setPendingMoodForSuggestion] = useState(null);
+  const [coords, setCoords] = useState(null);
+  const [locationDeclined, setLocationDeclined] = useState(false);
+  const [loadingOutfit, setLoadingOutfit] = useState(false);
+  const [outfitResult, setOutfitResult] = useState(null);
 
   // Enlarged Garment Modal State
   const [enlargedItem, setEnlargedItem] = useState(null);
@@ -78,21 +97,59 @@ export default function App() {
   useEffect(() => {
     if (userSession) {
       setSelectedCategory('All');
+      setSelectedMood('Casual');
+      setOutfitResult(null);
       fetchItems();
     }
   }, [userSession]);
 
   const checkPersistedSession = async () => {
     try {
-      const savedSession = await AsyncStorage.getItem('@atelier_session');
+      const [savedSession, savedUnit] = await Promise.all([
+        AsyncStorage.getItem('@atelier_session'),
+        AsyncStorage.getItem('@atelier_temp_unit'),
+      ]);
       if (savedSession) {
         setUserSession(JSON.parse(savedSession));
+      }
+      if (savedUnit === 'F' || savedUnit === 'C') {
+        setTempUnit(savedUnit);
+        tempSlideAnim.setValue(savedUnit === 'F' ? 1 : 0);
       }
     } catch (e) {
       console.error('Failed to load session', e);
     } finally {
       setLoadingSession(false);
     }
+  };
+
+  const toggleTempUnit = async () => {
+    const nextUnit = tempUnit === 'C' ? 'F' : 'C';
+    setTempUnit(nextUnit);
+    Animated.spring(tempSlideAnim, {
+      toValue: nextUnit === 'F' ? 1 : 0,
+      useNativeDriver: true,
+      friction: 7,
+      tension: 90,
+    }).start();
+
+    try {
+      await AsyncStorage.setItem('@atelier_temp_unit', nextUnit);
+    } catch (e) {
+      console.warn('Could not save temperature unit preference', e);
+    }
+  };
+
+  const formatOutdoorTemperature = (weather) => {
+    if (!weather) return '';
+    if (tempUnit === 'F') {
+      const valF =
+        weather.temp_f !== undefined && weather.temp_f !== null
+          ? weather.temp_f
+          : Math.round(((weather.temp_c * 9) / 5 + 32) * 10) / 10;
+      return `${valF}°F • ${weather.condition}`;
+    }
+    return `${weather.temp_c}°C • ${weather.condition}`;
   };
 
   const handleAuth = async () => {
@@ -168,6 +225,7 @@ export default function App() {
           setSelectedCategory('All');
           setIsSelectMode(false);
           setSelectedItemIds([]);
+          setOutfitResult(null);
         },
       },
     ]);
@@ -289,6 +347,107 @@ export default function App() {
     );
   };
 
+  const executeOutfitSuggestion = async (moodToUse, activeCoords, excludeIds = []) => {
+    setLoadingOutfit(true);
+    try {
+      const result = await suggestWardrobeOutfit(
+        {
+          mood: moodToUse,
+          latitude: activeCoords ? activeCoords.latitude : null,
+          longitude: activeCoords ? activeCoords.longitude : null,
+          gender: userSession.gender,
+          tempUnit,
+          excludeItemIds: excludeIds,
+        },
+        userSession.email
+      );
+
+      if (result.status === 'success') {
+        setOutfitResult(result);
+      } else {
+        Alert.alert('Outfit Suggestion', result.message || 'Could not generate an outfit.');
+      }
+    } finally {
+      setLoadingOutfit(false);
+    }
+  };
+
+  const handleRequestOutfit = async (moodToUse = selectedMood, excludeIds = []) => {
+    setSelectedMood(moodToUse);
+
+    if (coords) {
+      executeOutfitSuggestion(moodToUse, coords, excludeIds);
+      return;
+    }
+
+    try {
+      const existingPerm = await Location.getForegroundPermissionsAsync();
+      if (existingPerm.status === 'granted') {
+        setLoadingOutfit(true);
+        const pos = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.Balanced,
+        });
+        const freshCoords = {
+          latitude: pos.coords.latitude,
+          longitude: pos.coords.longitude,
+        };
+        setCoords(freshCoords);
+        setLocationDeclined(false);
+        executeOutfitSuggestion(moodToUse, freshCoords, excludeIds);
+        return;
+      }
+    } catch (e) {
+      console.warn('Permission check error:', e);
+    }
+
+    if (locationDeclined) {
+      executeOutfitSuggestion(moodToUse, null, excludeIds);
+      return;
+    }
+
+    setPendingMoodForSuggestion(moodToUse);
+    setShowLocationDisclaimer(true);
+  };
+
+  const handleAcceptLocationDisclaimer = async () => {
+    setShowLocationDisclaimer(false);
+    const moodToUse = pendingMoodForSuggestion || selectedMood;
+    setLoadingOutfit(true);
+
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status === 'granted') {
+        const pos = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.Balanced,
+        });
+        const freshCoords = {
+          latitude: pos.coords.latitude,
+          longitude: pos.coords.longitude,
+        };
+        setCoords(freshCoords);
+        setLocationDeclined(false);
+        executeOutfitSuggestion(moodToUse, freshCoords);
+      } else {
+        setLocationDeclined(true);
+        Alert.alert(
+          'Location Off',
+          'Generating outfit suggestions based on your mood without local outdoor temperature.'
+        );
+        executeOutfitSuggestion(moodToUse, null);
+      }
+    } catch (err) {
+      setLocationDeclined(true);
+      executeOutfitSuggestion(moodToUse, null);
+    }
+  };
+
+  const handleDeclineLocationDisclaimer = () => {
+    setShowLocationDisclaimer(false);
+    setLocationDeclined(true);
+    const moodToUse = pendingMoodForSuggestion || selectedMood;
+    executeOutfitSuggestion(moodToUse, null);
+  };
+
   const hasValidBrand = (brand) => {
     if (!brand) return false;
     const cleaned = brand.trim().toLowerCase();
@@ -396,13 +555,19 @@ export default function App() {
     );
   }
 
-  const availableCategories =
-    userSession.gender?.toLowerCase() === 'female' ? FEMALE_CATEGORIES : MALE_CATEGORIES;
+  const isFemale = userSession.gender?.toLowerCase() === 'female';
+  const availableCategories = isFemale ? FEMALE_CATEGORIES : MALE_CATEGORIES;
+  const availableMoods = isFemale ? FEMALE_MOODS : MALE_MOODS;
 
   const filteredItems =
     selectedCategory === 'All'
       ? items
       : items.filter((item) => item.category === selectedCategory);
+
+  const thumbTranslateX = tempSlideAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, 35],
+  });
 
   return (
     <SafeAreaView style={styles.container}>
@@ -416,124 +581,329 @@ export default function App() {
         </TouchableOpacity>
       </View>
 
-      <View style={styles.controlsRow}>
-
-        <View style={styles.actionButtons}>
-          {isSelectMode ? (
-            <TouchableOpacity
-              style={styles.cancelBatchButton}
-              onPress={() => {
-                setIsSelectMode(false);
-                setSelectedItemIds([]);
-              }}
-            >
-              <Text style={styles.cancelBatchButtonText}>Cancel</Text>
-            </TouchableOpacity>
-          ) : null}
-
-          <TouchableOpacity
-            style={[styles.addButton, uploadProgress && { opacity: 0.7 }]}
-            onPress={pickImageAndUpload}
-            disabled={uploadProgress !== null}
-          >
-            <Text style={styles.addButtonText}>{uploadProgress || '+ Add Photo'}</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-
-      {/* Horizontal Category Filter Tabs */}
-      <View style={styles.categoryBarWrapper}>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.categoryBarContent}
+      {/* Main Mode Switcher: Wardrobe vs Outfit Stylist */}
+      <View style={styles.modeSwitcherContainer}>
+        <TouchableOpacity
+          style={[styles.modeTab, activeTab === 'wardrobe' && styles.modeTabActive]}
+          onPress={() => setActiveTab('wardrobe')}
         >
-          {availableCategories.map((category) => {
-            const isActive = selectedCategory === category;
-            return (
-              <TouchableOpacity
-                key={category}
-                style={[styles.categoryChip, isActive && styles.categoryChipActive]}
-                onPress={() => setSelectedCategory(category)}
-              >
-                <Text style={[styles.categoryChipText, isActive && styles.categoryChipTextActive]}>
-                  {category}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
-        </ScrollView>
+          <Text style={[styles.modeTabText, activeTab === 'wardrobe' && styles.modeTabTextActive]}>
+            Wardrobe ({items.length})
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.modeTab, activeTab === 'stylist' && styles.modeTabActive]}
+          onPress={() => {
+            setActiveTab('stylist');
+            if (!outfitResult && items.length >= 2) {
+              handleRequestOutfit(selectedMood);
+            }
+          }}
+        >
+          <Text style={[styles.modeTabText, activeTab === 'stylist' && styles.modeTabTextActive]}>
+            Outfit Stylist
+          </Text>
+        </TouchableOpacity>
       </View>
 
-      {isSelectMode && selectedItemIds.length > 0 && (
-        <TouchableOpacity style={styles.deleteBar} onPress={deleteSelectedItems}>
-          <Text style={styles.deleteBarText}>Delete Selected ({selectedItemIds.length})</Text>
-        </TouchableOpacity>
-      )}
+      {activeTab === 'wardrobe' ? (
+        <>
+          <View style={styles.controlsRow}>
+            <Text style={styles.wardrobeSubtitle}>
+              {isSelectMode ? `${selectedItemIds.length} Selected` : `${userSession.gender}'s Wardrobe`}
+            </Text>
 
-      <FlatList
-        data={filteredItems}
-        keyExtractor={(item) => item.id.toString()}
-        numColumns={2}
-        contentContainerStyle={styles.gridContainer}
-        refreshing={refreshing}
-        onRefresh={() => {
-          setRefreshing(true);
-          fetchItems();
-        }}
-        renderItem={({ item }) => {
-          const isSelected = selectedItemIds.includes(item.id);
-          return (
-            <TouchableOpacity
-              style={[styles.card, isSelected && styles.selectedCard]}
-              activeOpacity={0.8}
-              onPress={() => {
-                if (isSelectMode) {
-                  toggleSelectItem(item.id);
-                } else {
-                  setEnlargedItem(item);
-                }
-              }}
-              onLongPress={() => {
-                if (!isSelectMode) {
-                  setIsSelectMode(true);
-                  setSelectedItemIds([item.id]);
-                }
-              }}
+            <View style={styles.actionButtons}>
+              {isSelectMode ? (
+                <TouchableOpacity
+                  style={styles.cancelBatchButton}
+                  onPress={() => {
+                    setIsSelectMode(false);
+                    setSelectedItemIds([]);
+                  }}
+                >
+                  <Text style={styles.cancelBatchButtonText}>Cancel</Text>
+                </TouchableOpacity>
+              ) : null}
+
+              <TouchableOpacity
+                style={[styles.addButton, uploadProgress && { opacity: 0.7 }]}
+                onPress={pickImageAndUpload}
+                disabled={uploadProgress !== null}
+              >
+                <Text style={styles.addButtonText}>{uploadProgress || '+ Add Photo'}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          <View style={styles.categoryBarWrapper}>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.categoryBarContent}
             >
-              <Image
-                source={{ uri: `${HOST_ROOT}${item.image_path}` }}
-                style={styles.cardImage}
-                resizeMode="contain"
-              />
-              <View style={styles.cardInfo}>
-                <Text style={styles.cardName} numberOfLines={1}>
-                  {item.name}
-                </Text>
-                <Text style={styles.cardSub} numberOfLines={1}>
-                  {formatCardSubtitle(item)}
+              {availableCategories.map((category) => {
+                const isActive = selectedCategory === category;
+                return (
+                  <TouchableOpacity
+                    key={category}
+                    style={[styles.categoryChip, isActive && styles.categoryChipActive]}
+                    onPress={() => setSelectedCategory(category)}
+                  >
+                    <Text style={[styles.categoryChipText, isActive && styles.categoryChipTextActive]}>
+                      {category}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          </View>
+
+          {isSelectMode && selectedItemIds.length > 0 && (
+            <TouchableOpacity style={styles.deleteBar} onPress={deleteSelectedItems}>
+              <Text style={styles.deleteBarText}>Delete Selected ({selectedItemIds.length})</Text>
+            </TouchableOpacity>
+          )}
+
+          <FlatList
+            data={filteredItems}
+            keyExtractor={(item) => item.id.toString()}
+            numColumns={2}
+            contentContainerStyle={styles.gridContainer}
+            refreshing={refreshing}
+            onRefresh={() => {
+              setRefreshing(true);
+              fetchItems();
+            }}
+            renderItem={({ item }) => {
+              const isSelected = selectedItemIds.includes(item.id);
+              return (
+                <TouchableOpacity
+                  style={[styles.card, isSelected && styles.selectedCard]}
+                  activeOpacity={0.8}
+                  onPress={() => {
+                    if (isSelectMode) {
+                      toggleSelectItem(item.id);
+                    } else {
+                      setEnlargedItem(item);
+                    }
+                  }}
+                  onLongPress={() => {
+                    if (!isSelectMode) {
+                      setIsSelectMode(true);
+                      setSelectedItemIds([item.id]);
+                    }
+                  }}
+                >
+                  <Image
+                    source={{ uri: `${HOST_ROOT}${item.image_path}` }}
+                    style={styles.cardImage}
+                    resizeMode="contain"
+                  />
+                  <View style={styles.cardInfo}>
+                    <Text style={styles.cardName} numberOfLines={1}>
+                      {item.name}
+                    </Text>
+                    <Text style={styles.cardSub} numberOfLines={1}>
+                      {formatCardSubtitle(item)}
+                    </Text>
+                  </View>
+
+                  {isSelectMode && (
+                    <View style={[styles.checkbox, isSelected && styles.checkboxSelected]}>
+                      {isSelected && <Text style={styles.checkmark}>✓</Text>}
+                    </View>
+                  )}
+                </TouchableOpacity>
+              );
+            }}
+            ListEmptyComponent={
+              <View style={styles.emptyContainer}>
+                <Text style={styles.emptyText}>
+                  {items.length === 0
+                    ? 'Your wardrobe is empty. Tap "+ Add Photo" to start!'
+                    : `No items in "${selectedCategory}".`}
                 </Text>
               </View>
+            }
+          />
+        </>
+      ) : (
+        <ScrollView contentContainerStyle={styles.stylistScrollContainer}>
+          <View style={styles.moodSectionCard}>
+            <View style={styles.moodHeaderRow}>
+              <Text style={styles.sectionHeading}>Pick a Mood:</Text>
 
-              {isSelectMode && (
-                <View style={[styles.checkbox, isSelected && styles.checkboxSelected]}>
-                  {isSelected && <Text style={styles.checkmark}>✓</Text>}
-                </View>
-              )}
-            </TouchableOpacity>
-          );
-        }}
-        ListEmptyComponent={
-          <View style={styles.emptyContainer}>
-            <Text style={styles.emptyText}>
-              {items.length === 0
-                ? 'Your wardrobe is empty. Tap "+ Add Photo" to start!'
-                : `No items in "${selectedCategory}".`}
-            </Text>
+              <View style={styles.weatherControlsGroup}>
+                {outfitResult?.weather ? (
+                  <View style={styles.weatherBadge}>
+                    <Text style={styles.weatherBadgeText}>
+                      {formatOutdoorTemperature(outfitResult.weather)}
+                    </Text>
+                  </View>
+                ) : (
+                  <TouchableOpacity
+                    style={styles.weatherEnablePill}
+                    onPress={() => {
+                      setLocationDeclined(false);
+                      setPendingMoodForSuggestion(selectedMood);
+                      setShowLocationDisclaimer(true);
+                    }}
+                  >
+                    <Text style={styles.weatherEnableText}>
+                      {coords ? 'GPS Active' : 'Enable GPS'}
+                    </Text>
+                  </TouchableOpacity>
+                )}
+
+                {/* °C / °F Sliding Toggle Switch */}
+                <TouchableOpacity
+                  activeOpacity={0.85}
+                  onPress={toggleTempUnit}
+                  style={styles.unitSliderTrack}
+                  accessibilityRole="switch"
+                  accessibilityLabel="Temperature unit switch"
+                >
+                  <Animated.View
+                    style={[
+                      styles.unitSliderThumb,
+                      { transform: [{ translateX: thumbTranslateX }] },
+                    ]}
+                  />
+                  <View style={styles.unitSliderLabelsRow}>
+                    <Text style={[styles.unitSliderText, tempUnit === 'C' && styles.unitSliderTextActive]}>
+                      °C
+                    </Text>
+                    <Text style={[styles.unitSliderText, tempUnit === 'F' && styles.unitSliderTextActive]}>
+                      °F
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            <View style={styles.moodChipsRow}>
+              {availableMoods.map((mood) => {
+                const isSelected = selectedMood === mood;
+                return (
+                  <TouchableOpacity
+                    key={mood}
+                    style={[styles.moodChip, isSelected && styles.moodChipActive]}
+                    onPress={() => handleRequestOutfit(mood)}
+                    disabled={loadingOutfit}
+                  >
+                    <Text style={[styles.moodChipText, isSelected && styles.moodChipTextActive]}>
+                      {mood}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
           </View>
-        }
-      />
 
+          {loadingOutfit ? (
+            <View style={styles.stylistLoadingBox}>
+              <ActivityIndicator size="large" color="#f59e0b" />
+              <Text style={styles.stylistLoadingText}>
+                Checking local temperature & styling your {selectedMood.toLowerCase()} outfit...
+              </Text>
+            </View>
+          ) : outfitResult ? (
+            <View style={styles.outfitCard}>
+              <View style={styles.outfitTitleRow}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.outfitMoodTag}>{outfitResult.mood.toUpperCase()} LOOK</Text>
+                  <Text style={styles.outfitTitle}>{outfitResult.outfit_title}</Text>
+                </View>
+                <TouchableOpacity
+                  style={styles.shuffleButton}
+                  onPress={() =>
+                    handleRequestOutfit(
+                      selectedMood,
+                      outfitResult.items.map((i) => i.id)
+                    )
+                  }
+                >
+                  <Text style={styles.shuffleButtonText}>Shuffle</Text>
+                </TouchableOpacity>
+              </View>
+
+              <Text style={styles.stylistNote}>{outfitResult.stylist_note}</Text>
+
+              <View style={styles.outfitGrid}>
+                {outfitResult.items.map((garment) => (
+                  <TouchableOpacity
+                    key={garment.id}
+                    style={styles.outfitPieceCard}
+                    activeOpacity={0.85}
+                    onPress={() => setEnlargedItem(garment)}
+                  >
+                    <Image
+                      source={{ uri: `${HOST_ROOT}${garment.image_path}` }}
+                      style={styles.outfitPieceImage}
+                      resizeMode="contain"
+                    />
+                    <View style={styles.outfitPieceInfo}>
+                      <Text style={styles.outfitPieceCategory}>{garment.category}</Text>
+                      <Text style={styles.outfitPieceName} numberOfLines={1}>
+                        {garment.name}
+                      </Text>
+                      <Text style={styles.outfitPieceSub} numberOfLines={1}>
+                        {formatCardSubtitle(garment)}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+          ) : (
+            <View style={styles.emptyContainer}>
+              <Text style={styles.emptyText}>
+                Select a mood above to get weather-matched outfit recommendations from your wardrobe.
+              </Text>
+            </View>
+          )}
+        </ScrollView>
+      )}
+
+      {/* GPS Location Disclosure Disclaimer Modal */}
+      <Modal
+        visible={showLocationDisclaimer}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={handleDeclineLocationDisclaimer}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.disclaimerTitle}>Location Access for Weather Styling</Text>
+            <Text style={styles.disclaimerBody}>
+              Atelier requests access to your device's GPS location solely to check the current outside
+              temperature and weather conditions in your area.
+            </Text>
+            <Text style={styles.disclaimerBody}>
+              This allows us to recommend weather-appropriate layers and outfits from your wardrobe. Your
+              GPS coordinates are never stored on our server or shared with third parties.
+            </Text>
+
+            <View style={styles.disclaimerButtonsRow}>
+              <TouchableOpacity
+                style={styles.disclaimerSecondaryBtn}
+                onPress={handleDeclineLocationDisclaimer}
+              >
+                <Text style={styles.disclaimerSecondaryText}>Not Now</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.disclaimerPrimaryBtn}
+                onPress={handleAcceptLocationDisclaimer}
+              >
+                <Text style={styles.disclaimerPrimaryText}>Allow Location</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Enlarged Garment Details Modal */}
       <Modal
         visible={enlargedItem !== null}
         transparent={true}
@@ -605,6 +975,11 @@ const styles = StyleSheet.create({
   loggedUserText: { fontSize: 13, color: '#f59e0b', fontWeight: '600' },
   logoutButton: { backgroundColor: '#1e293b', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6, borderWidth: 1, borderColor: '#334155' },
   logoutText: { color: '#ef4444', fontSize: 12, fontWeight: '600' },
+  modeSwitcherContainer: { flexDirection: 'row', marginHorizontal: 16, marginBottom: 12, backgroundColor: '#1e293b', borderRadius: 10, padding: 3, borderWidth: 1, borderColor: '#334155' },
+  modeTab: { flex: 1, paddingVertical: 8, alignItems: 'center', borderRadius: 8 },
+  modeTabActive: { backgroundColor: '#f59e0b' },
+  modeTabText: { color: '#94a3b8', fontSize: 13, fontWeight: '600' },
+  modeTabTextActive: { color: '#0f172a', fontWeight: 'bold' },
   controlsRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, marginBottom: 10 },
   wardrobeSubtitle: { color: '#94a3b8', fontSize: 13, fontWeight: '500' },
   actionButtons: { flexDirection: 'row', gap: 8 },
@@ -630,10 +1005,80 @@ const styles = StyleSheet.create({
   checkbox: { position: 'absolute', top: 8, right: 8, width: 24, height: 24, borderRadius: 12, backgroundColor: 'rgba(0,0,0,0.6)', borderWidth: 2, borderColor: '#fff', justifyContent: 'center', alignItems: 'center' },
   checkboxSelected: { backgroundColor: '#f59e0b', borderColor: '#f59e0b' },
   checkmark: { color: '#0f172a', fontWeight: 'bold', fontSize: 14 },
-  emptyContainer: { marginTop: 100, alignItems: 'center', paddingHorizontal: 20 },
+  emptyContainer: { marginTop: 80, alignItems: 'center', paddingHorizontal: 20 },
   emptyText: { color: '#64748b', fontSize: 14, textAlign: 'center' },
+  stylistScrollContainer: { paddingHorizontal: 16, paddingBottom: 30 },
+  moodSectionCard: { backgroundColor: '#1e293b', borderRadius: 14, padding: 14, borderWidth: 1, borderColor: '#334155', marginBottom: 14 },
+  moodHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, gap: 8 },
+  sectionHeading: { color: '#f8fafc', fontSize: 16, fontWeight: 'bold' },
+  weatherControlsGroup: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  weatherBadge: { backgroundColor: '#0f172a', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 14, borderWidth: 1, borderColor: '#f59e0b' },
+  weatherBadgeText: { color: '#f59e0b', fontSize: 11, fontWeight: 'bold' },
+  weatherEnablePill: { backgroundColor: '#0f172a', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 14, borderWidth: 1, borderColor: '#334155' },
+  weatherEnableText: { color: '#94a3b8', fontSize: 11, fontWeight: '600' },
+  unitSliderTrack: {
+    width: 76,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#0f172a',
+    borderWidth: 1,
+    borderColor: '#334155',
+    padding: 2,
+    justifyContent: 'center',
+  },
+  unitSliderThumb: {
+    position: 'absolute',
+    left: 2,
+    width: 35,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: '#f59e0b',
+  },
+  unitSliderLabelsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  unitSliderText: {
+    width: 35,
+    textAlign: 'center',
+    fontSize: 11,
+    fontWeight: 'bold',
+    color: '#94a3b8',
+  },
+  unitSliderTextActive: {
+    color: '#0f172a',
+  },
+  moodChipsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  moodChip: { backgroundColor: '#0f172a', paddingHorizontal: 16, paddingVertical: 9, borderRadius: 20, borderWidth: 1, borderColor: '#334155' },
+  moodChipActive: { backgroundColor: '#f59e0b', borderColor: '#f59e0b' },
+  moodChipText: { color: '#94a3b8', fontSize: 13, fontWeight: '600' },
+  moodChipTextActive: { color: '#0f172a', fontWeight: 'bold' },
+  stylistLoadingBox: { backgroundColor: '#1e293b', borderRadius: 14, padding: 30, alignItems: 'center', borderWidth: 1, borderColor: '#334155', gap: 12 },
+  stylistLoadingText: { color: '#94a3b8', fontSize: 13, textAlign: 'center' },
+  outfitCard: { backgroundColor: '#1e293b', borderRadius: 14, padding: 16, borderWidth: 1, borderColor: '#334155' },
+  outfitTitleRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 },
+  outfitMoodTag: { color: '#f59e0b', fontSize: 11, fontWeight: 'bold', letterSpacing: 1, marginBottom: 2 },
+  outfitTitle: { color: '#f8fafc', fontSize: 20, fontWeight: 'bold' },
+  shuffleButton: { backgroundColor: '#0f172a', paddingHorizontal: 12, paddingVertical: 7, borderRadius: 8, borderWidth: 1, borderColor: '#f59e0b' },
+  shuffleButtonText: { color: '#f59e0b', fontSize: 12, fontWeight: 'bold' },
+  stylistNote: { color: '#cbd5e1', fontSize: 13, lineHeight: 19, marginBottom: 14 },
+  outfitGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' },
+  outfitPieceCard: { width: '48%', backgroundColor: '#0f172a', borderRadius: 12, overflow: 'hidden', borderWidth: 1, borderColor: '#334155', marginBottom: 12 },
+  outfitPieceImage: { width: '100%', height: 140, backgroundColor: '#0f172a' },
+  outfitPieceInfo: { padding: 10 },
+  outfitPieceCategory: { color: '#f59e0b', fontSize: 10, fontWeight: 'bold', textTransform: 'uppercase', marginBottom: 2 },
+  outfitPieceName: { color: '#f8fafc', fontSize: 13, fontWeight: 'bold' },
+  outfitPieceSub: { color: '#94a3b8', fontSize: 11, marginTop: 2 },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0, 0, 0, 0.85)', justifyContent: 'center', alignItems: 'center', padding: 20 },
   modalContent: { width: '100%', backgroundColor: '#1e293b', borderRadius: 16, padding: 20, alignItems: 'center', borderWidth: 1, borderColor: '#334155' },
+  disclaimerTitle: { color: '#f8fafc', fontSize: 18, fontWeight: 'bold', textAlign: 'center', marginBottom: 12 },
+  disclaimerBody: { color: '#cbd5e1', fontSize: 14, lineHeight: 20, textAlign: 'center', marginBottom: 12 },
+  disclaimerButtonsRow: { flexDirection: 'row', gap: 10, marginTop: 8, width: '100%' },
+  disclaimerSecondaryBtn: { flex: 1, backgroundColor: '#0f172a', paddingVertical: 12, borderRadius: 8, alignItems: 'center', borderWidth: 1, borderColor: '#334155' },
+  disclaimerSecondaryText: { color: '#94a3b8', fontSize: 14, fontWeight: '600' },
+  disclaimerPrimaryBtn: { flex: 1, backgroundColor: '#f59e0b', paddingVertical: 12, borderRadius: 8, alignItems: 'center' },
+  disclaimerPrimaryText: { color: '#0f172a', fontSize: 14, fontWeight: 'bold' },
   modalCloseButton: { alignSelf: 'flex-end', padding: 4, marginBottom: 8 },
   modalCloseText: { color: '#94a3b8', fontSize: 22, fontWeight: 'bold' },
   enlargedImage: { width: '100%', height: 320, backgroundColor: '#0f172a', borderRadius: 8, marginBottom: 16 },

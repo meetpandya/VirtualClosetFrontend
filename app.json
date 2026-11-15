@@ -30,6 +30,12 @@
           "photosPermission": "Atelier needs access to your photos to upload garment images.",
           "cameraPermission": "Atelier needs access to your camera to take garment photos."
         }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Atelier accesses your location to check the current outdoor temperature and recommend weather-appropriate outfits from your wardrobe."
+        }
       ]
     ],
     "extra": {

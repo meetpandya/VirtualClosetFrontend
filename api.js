@@ -58,3 +58,39 @@ export const deleteBatchWardrobeItems = async (itemIds = [], userId) => {
     return { status: 'error', message: error.message };
   }
 };
+
+export const suggestWardrobeOutfit = async (
+  { mood, latitude, longitude, gender, tempUnit = 'C', excludeItemIds = [] },
+  userId
+) => {
+  const targetUrl = `${API_BASE_URL}/outfits/suggest`;
+
+  try {
+    const response = await fetch(targetUrl, {
+      method: 'POST',
+      headers: {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json',
+        'X-User-Id': userId,
+      },
+      body: JSON.stringify({
+        mood,
+        latitude,
+        longitude,
+        gender,
+        temp_unit: tempUnit,
+        exclude_item_ids: excludeItemIds,
+      }),
+    });
+
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.detail || `Server returned HTTP ${response.status}`);
+    }
+
+    return data;
+  } catch (error) {
+    console.error('Outfit suggestion error:', error);
+    return { status: 'error', message: error.message };
+  }
+};

@@ -344,10 +344,6 @@ export default function App() {
       </View>
 
       <View style={styles.controlsRow}>
-        <Text style={styles.wardrobeSubtitle}>
-          {isSelectMode ? `${selectedItemIds.length} Selected` : `${userSession.gender}'s Wardrobe`}
-        </Text>
-
         <View style={styles.actionButtons}>
           {isSelectMode ? (
             <TouchableOpacity

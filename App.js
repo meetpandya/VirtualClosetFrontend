@@ -17,8 +17,7 @@ import {
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
-
-const API_BASE_URL = 'https://raspberrypi.tailf2a0e2.ts.net';
+import { API_BASE_URL, deleteBatchWardrobeItems } from './api';
 
 export default function App() {
   const [userSession, setUserSession] = useState(null);
@@ -41,6 +40,8 @@ export default function App() {
 
   // Enlarged Garment Modal State
   const [enlargedItem, setEnlargedItem] = useState(null);
+
+  const HOST_ROOT = API_BASE_URL.replace('/api', '');
 
   useEffect(() => {
     checkPersistedSession();
@@ -91,13 +92,17 @@ export default function App() {
         };
 
     try {
-      const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+      const response = await fetch(`${HOST_ROOT}${endpoint}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
 
-      const data = await response.json();
+      let data = {};
+      const contentType = response.headers.get("content-type");
+      if (contentType && contentType.includes("application/json")) {
+        data = await response.json();
+      }
 
       if (response.ok) {
         const sessionData = {
@@ -138,7 +143,7 @@ export default function App() {
 
   const fetchItems = async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/api/items`, {
+      const response = await fetch(`${API_BASE_URL}/items`, {
         headers: { 'X-User-Id': userSession.email },
       });
       const data = await response.json();
@@ -178,11 +183,10 @@ export default function App() {
       formData.append('gender', userSession.gender);
 
       try {
-        const response = await fetch(`${API_BASE_URL}/api/wardrobe/upload`, {
+        const response = await fetch(`${API_BASE_URL}/wardrobe/upload`, {
           method: 'POST',
           headers: {
             'X-User-Id': userSession.email,
-            'Content-Type': 'multipart/form-data',
           },
           body: formData,
         });
@@ -190,7 +194,7 @@ export default function App() {
         if (response.ok) {
           setTimeout(() => {
             fetchItems();
-          }, 1000);
+          }, 1500);
         } else {
           Alert.alert('Upload Failed', 'Server rejected the upload.');
         }
@@ -212,7 +216,6 @@ export default function App() {
     }
   };
 
-  // Unified batch delete function handles both single and multiple selections safely
   const deleteSelectedItems = async () => {
     if (selectedItemIds.length === 0) return;
 
@@ -225,34 +228,13 @@ export default function App() {
           text: 'Delete',
           style: 'destructive',
           onPress: async () => {
-            try {
-              const response = await fetch(`${API_BASE_URL}/api/items/batch-delete`, {
-                method: 'DELETE',
-                headers: {
-                  'Accept': 'application/json',
-                  'Content-Type': 'application/json',
-                  'X-User-Id': userSession.email,
-                },
-                body: JSON.stringify({ item_ids: selectedItemIds }),
-              });
-
-              // Safely check content type before parsing JSON to prevent crashes
-              const contentType = response.headers.get("content-type");
-              let data = {};
-              if (contentType && contentType.includes("application/json")) {
-                data = await response.json();
-              }
-
-              if (response.ok) {
-                setSelectedItemIds([]);
-                setIsSelectMode(false);
-                fetchItems();
-              } else {
-                Alert.alert('Error', data.detail || `Failed to delete items (HTTP ${response.status}).`);
-              }
-            } catch (error) {
-              console.error('Delete network error:', error);
-              Alert.alert('Error', 'Network error during deletion. Check your Tailscale connection.');
+            const result = await deleteBatchWardrobeItems(selectedItemIds, userSession.email);
+            if (result.status === 'success') {
+              setSelectedItemIds([]);
+              setIsSelectMode(false);
+              fetchItems();
+            } else {
+              Alert.alert('Error', result.message || 'Failed to delete items.');
             }
           },
         },
@@ -412,19 +394,17 @@ export default function App() {
                 if (isSelectMode) {
                   toggleSelectItem(item.id);
                 } else {
-                  // Tap enlarges the garment image in a modal view
                   setEnlargedItem(item);
                 }
               }}
               onLongPress={() => {
-                // Tap and hold enters batch selection mode and selects this card
                 if (!isSelectMode) {
                   setIsSelectMode(true);
                   setSelectedItemIds([item.id]);
                 }
               }}
             >
-              <Image source={{ uri: `${API_BASE_URL}${item.image_path}` }} style={styles.cardImage} resizeMode="contain" />
+              <Image source={{ uri: `${HOST_ROOT}${item.image_path}` }} style={styles.cardImage} resizeMode="contain" />
               <View style={styles.cardInfo}>
                 <Text style={styles.cardName} numberOfLines={1}>
                   {item.name}
@@ -434,7 +414,6 @@ export default function App() {
                 </Text>
               </View>
 
-              {/* Selection Checkbox Overlay */}
               {isSelectMode && (
                 <View style={[styles.checkbox, isSelected && styles.checkboxSelected]}>
                   {isSelected && <Text style={styles.checkmark}>✓</Text>}
@@ -465,7 +444,7 @@ export default function App() {
             {enlargedItem && (
               <>
                 <Image
-                  source={{ uri: `${API_BASE_URL}${enlargedItem.image_path}` }}
+                  source={{ uri: `${HOST_ROOT}${enlargedItem.image_path}` }}
                   style={styles.enlargedImage}
                   resizeMode="contain"
                 />
@@ -483,292 +462,54 @@ export default function App() {
 }
 
 const styles = StyleSheet.create({
-  centerContainer: {
-    flex: 1,
-    backgroundColor: '#0f172a',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  container: {
-    flex: 1,
-    backgroundColor: '#0f172a',
-  },
-  authContainer: {
-    flexGrow: 1,
-    justifyContent: 'center',
-    paddingHorizontal: 24,
-    paddingVertical: 40,
-  },
-  appTitle: {
-    fontSize: 36,
-    fontWeight: 'bold',
-    color: '#f8fafc',
-    textAlign: 'center',
-    letterSpacing: 1,
-  },
-  appSubtitle: {
-    fontSize: 14,
-    color: '#94a3b8',
-    textAlign: 'center',
-    marginBottom: 32,
-    letterSpacing: 2,
-    textTransform: 'uppercase',
-  },
-  label: {
-    color: '#94a3b8',
-    fontSize: 14,
-    marginBottom: 8,
-  },
-  authGenderContainer: {
-    flexDirection: 'row',
-    backgroundColor: '#1e293b',
-    borderRadius: 8,
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: '#334155',
-    padding: 2,
-  },
-  authGenderTab: {
-    flex: 1,
-    paddingVertical: 10,
-    alignItems: 'center',
-    borderRadius: 6,
-  },
-  authActiveGenderTab: {
-    backgroundColor: '#f59e0b',
-  },
-  authGenderText: {
-    color: '#94a3b8',
-    fontWeight: '600',
-  },
-  authActiveGenderText: {
-    color: '#0f172a',
-  },
-  input: {
-    backgroundColor: '#1e293b',
-    color: '#f8fafc',
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    borderRadius: 8,
-    fontSize: 16,
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: '#334155',
-  },
-  primaryButton: {
-    backgroundColor: '#f59e0b',
-    paddingVertical: 14,
-    borderRadius: 8,
-    alignItems: 'center',
-    marginTop: 8,
-  },
-  primaryButtonText: {
-    color: '#0f172a',
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  switchAuthText: {
-    marginTop: 20,
-    alignItems: 'center',
-  },
-  switchTextNormal: {
-    color: '#94a3b8',
-    fontSize: 14,
-  },
-  switchTextHighlight: {
-    color: '#f59e0b',
-    fontWeight: 'bold',
-  },
-  headerRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-  },
-  headerTitle: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#f8fafc',
-  },
-  loggedUserText: {
-    fontSize: 13,
-    color: '#f59e0b',
-    fontWeight: '600',
-  },
-  logoutButton: {
-    backgroundColor: '#1e293b',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: '#334155',
-  },
-  logoutText: {
-    color: '#ef4444',
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  controlsRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    marginBottom: 12,
-  },
-  wardrobeSubtitle: {
-    color: '#94a3b8',
-    fontSize: 13,
-    fontWeight: '500',
-  },
-  actionButtons: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  cancelBatchButton: {
-    backgroundColor: '#334155',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 8,
-  },
-  cancelBatchButtonText: {
-    color: '#f8fafc',
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  addButton: {
-    backgroundColor: '#f59e0b',
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 8,
-  },
-  addButtonText: {
-    color: '#0f172a',
-    fontSize: 13,
-    fontWeight: 'bold',
-  },
-  deleteBar: {
-    backgroundColor: '#ef4444',
-    marginHorizontal: 16,
-    marginBottom: 12,
-    paddingVertical: 10,
-    borderRadius: 8,
-    alignItems: 'center',
-  },
-  deleteBarText: {
-    color: '#fff',
-    fontWeight: 'bold',
-    fontSize: 14,
-  },
-  gridContainer: {
-    paddingHorizontal: 10,
-  },
-  card: {
-    flex: 1,
-    backgroundColor: '#1e293b',
-    margin: 6,
-    borderRadius: 12,
-    overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: '#334155',
-  },
-  selectedCard: {
-    borderColor: '#f59e0b',
-    borderWidth: 2,
-  },
-  cardImage: {
-    width: '100%',
-    height: 160,
-    backgroundColor: '#0f172a',
-  },
-  cardInfo: {
-    padding: 10,
-  },
-  cardName: {
-    color: '#f8fafc',
-    fontSize: 14,
-    fontWeight: 'bold',
-  },
-  cardSub: {
-    color: '#94a3b8',
-    fontSize: 11,
-    marginTop: 2,
-  },
-  checkbox: {
-    position: 'absolute',
-    top: 8,
-    right: 8,
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    borderWidth: 2,
-    borderColor: '#fff',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  checkboxSelected: {
-    backgroundColor: '#f59e0b',
-    borderColor: '#f59e0b',
-  },
-  checkmark: {
-    color: '#0f172a',
-    fontWeight: 'bold',
-    fontSize: 14,
-  },
-  emptyContainer: {
-    marginTop: 100,
-    alignItems: 'center',
-    paddingHorizontal: 20,
-  },
-  emptyText: {
-    color: '#64748b',
-    fontSize: 14,
-    textAlign: 'center',
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.85)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 20,
-  },
-  modalContent: {
-    width: '100%',
-    backgroundColor: '#1e293b',
-    borderRadius: 16,
-    padding: 20,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#334155',
-  },
-  modalCloseButton: {
-    alignSelf: 'flex-end',
-    padding: 4,
-    marginBottom: 8,
-  },
-  modalCloseText: {
-    color: '#94a3b8',
-    fontSize: 22,
-    fontWeight: 'bold',
-  },
-  enlargedImage: {
-    width: '100%',
-    height: 320,
-    backgroundColor: '#0f172a',
-    borderRadius: 8,
-    marginBottom: 16,
-  },
-  modalTitle: {
-    color: '#f8fafc',
-    fontSize: 18,
-    fontWeight: 'bold',
-    textAlign: 'center',
-    marginBottom: 4,
-  },
-  modalSub: {
-    color: '#94a3b8',
-    fontSize: 13,
-    textAlign: 'center',
-  },
+  centerContainer: { flex: 1, backgroundColor: '#0f172a', justifyContent: 'center', alignItems: 'center' },
+  container: { flex: 1, backgroundColor: '#0f172a' },
+  authContainer: { flexGrow: 1, justifyContent: 'center', paddingHorizontal: 24, paddingVertical: 40 },
+  appTitle: { fontSize: 36, fontWeight: 'bold', color: '#f8fafc', textAlign: 'center', letterSpacing: 1 },
+  appSubtitle: { fontSize: 14, color: '#94a3b8', textAlign: 'center', marginBottom: 32, letterSpacing: 2, textTransform: 'uppercase' },
+  label: { color: '#94a3b8', fontSize: 14, marginBottom: 8 },
+  authGenderContainer: { flexDirection: 'row', backgroundColor: '#1e293b', borderRadius: 8, marginBottom: 16, borderWidth: 1, borderColor: '#334155', padding: 2 },
+  authGenderTab: { flex: 1, paddingVertical: 10, alignItems: 'center', borderRadius: 6 },
+  authActiveGenderTab: { backgroundColor: '#f59e0b' },
+  authGenderText: { color: '#94a3b8', fontWeight: '600' },
+  authActiveGenderText: { color: '#0f172a' },
+  input: { backgroundColor: '#1e293b', color: '#f8fafc', paddingHorizontal: 16, paddingVertical: 14, borderRadius: 8, fontSize: 16, marginBottom: 16, borderWidth: 1, borderColor: '#334155' },
+  primaryButton: { backgroundColor: '#f59e0b', paddingVertical: 14, borderRadius: 8, alignItems: 'center', marginTop: 8 },
+  primaryButtonText: { color: '#0f172a', fontSize: 16, fontWeight: 'bold' },
+  switchAuthText: { marginTop: 20, alignItems: 'center' },
+  switchTextNormal: { color: '#94a3b8', fontSize: 14 },
+  switchTextHighlight: { color: '#f59e0b', fontWeight: 'bold' },
+  headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12 },
+  headerTitle: { fontSize: 24, fontWeight: 'bold', color: '#f8fafc' },
+  loggedUserText: { fontSize: 13, color: '#f59e0b', fontWeight: '600' },
+  logoutButton: { backgroundColor: '#1e293b', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6, borderWidth: 1, borderColor: '#334155' },
+  logoutText: { color: '#ef4444', fontSize: 12, fontWeight: '600' },
+  controlsRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, marginBottom: 12 },
+  wardrobeSubtitle: { color: '#94a3b8', fontSize: 13, fontWeight: '500' },
+  actionButtons: { flexDirection: 'row', gap: 8 },
+  cancelBatchButton: { backgroundColor: '#334155', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8 },
+  cancelBatchButtonText: { color: '#f8fafc', fontSize: 13, fontWeight: '600' },
+  addButton: { backgroundColor: '#f59e0b', paddingHorizontal: 14, paddingVertical: 8, borderRadius: 8 },
+  addButtonText: { color: '#0f172a', fontSize: 13, fontWeight: 'bold' },
+  deleteBar: { backgroundColor: '#ef4444', marginHorizontal: 16, marginBottom: 12, paddingVertical: 10, borderRadius: 8, alignItems: 'center' },
+  deleteBarText: { color: '#fff', fontWeight: 'bold', fontSize: 14 },
+  gridContainer: { paddingHorizontal: 10 },
+  card: { flex: 1, backgroundColor: '#1e293b', margin: 6, borderRadius: 12, overflow: 'hidden', borderWidth: 1, borderColor: '#334155' },
+  selectedCard: { borderColor: '#f59e0b', borderWidth: 2 },
+  cardImage: { width: '100%', height: 160, backgroundColor: '#0f172a' },
+  cardInfo: { padding: 10 },
+  cardName: { color: '#f8fafc', fontSize: 14, fontWeight: 'bold' },
+  cardSub: { color: '#94a3b8', fontSize: 11, marginTop: 2 },
+  checkbox: { position: 'absolute', top: 8, right: 8, width: 24, height: 24, borderRadius: 12, backgroundColor: 'rgba(0,0,0,0.6)', borderWidth: 2, borderColor: '#fff', justifyContent: 'center', alignItems: 'center' },
+  checkboxSelected: { backgroundColor: '#f59e0b', borderColor: '#f59e0b' },
+  checkmark: { color: '#0f172a', fontWeight: 'bold', fontSize: 14 },
+  emptyContainer: { marginTop: 100, alignItems: 'center', paddingHorizontal: 20 },
+  emptyText: { color: '#64748b', fontSize: 14, textAlign: 'center' },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0, 0, 0, 0.85)', justifyContent: 'center', alignItems: 'center', padding: 20 },
+  modalContent: { width: '100%', backgroundColor: '#1e293b', borderRadius: 16, padding: 20, alignItems: 'center', borderWidth: 1, borderColor: '#334155' },
+  modalCloseButton: { alignSelf: 'flex-end', padding: 4, marginBottom: 8 },
+  modalCloseText: { color: '#94a3b8', fontSize: 22, fontWeight: 'bold' },
+  enlargedImage: { width: '100%', height: 320, backgroundColor: '#0f172a', borderRadius: 8, marginBottom: 16 },
+  modalTitle: { color: '#f8fafc', fontSize: 18, fontWeight: 'bold', textAlign: 'center', marginBottom: 4 },
+  modalSub: { color: '#94a3b8', fontSize: 13, textAlign: 'center' },
 });

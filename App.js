@@ -158,32 +158,30 @@ export default function App() {
   };
 
   const pickImageAndUpload = async () => {
-    const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permissionResult.granted) {
-      Alert.alert('Permission required', 'Camera roll permissions are needed!');
-      return;
-    }
-
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
-      quality: 0.8,
-    });
-
-    if (!result.canceled && result.assets && result.assets.length > 0) {
-      const localUri = result.assets[0].uri;
-      const filename = localUri.split('/').pop() || `garment_${Date.now()}.jpg`;
-
-      const formData = new FormData();
-      formData.append('file', {
-        uri: localUri,
-        name: filename,
-        type: 'image/jpeg',
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: false,
+        quality: 0.8,
       });
-      formData.append('gender', userSession.gender);
 
-      try {
-        const response = await fetch(`${API_BASE_URL}/wardrobe/upload`, {
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const localUri = result.assets[0].uri;
+        const filename = localUri.split('/').pop() || `garment_${Date.now()}.jpg`;
+
+        const formData = new FormData();
+        formData.append('file', {
+          uri: localUri,
+          name: filename,
+          type: 'image/jpeg',
+        });
+        formData.append('gender', userSession.gender);
+
+        const uploadUrl = API_BASE_URL.endsWith('/api')
+          ? `${API_BASE_URL}/wardrobe/upload`
+          : `${API_BASE_URL}/api/wardrobe/upload`;
+
+        const response = await fetch(uploadUrl, {
           method: 'POST',
           headers: {
             'X-User-Id': userSession.email,
@@ -198,9 +196,9 @@ export default function App() {
         } else {
           Alert.alert('Upload Failed', 'Server rejected the upload.');
         }
-      } catch (error) {
-        Alert.alert('Error', 'Failed to upload image to Pi backend.');
       }
+    } catch (error) {
+      Alert.alert('Error', 'Failed to open gallery or upload image.');
     }
   };
 

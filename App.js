@@ -19,6 +19,32 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
 import { API_BASE_URL, deleteBatchWardrobeItems } from './api';
 
+const FEMALE_CATEGORIES = [
+  'All',
+  'Dresses',
+  'Tops',
+  'Bottoms',
+  'Outwear and Jackets',
+  'Denim',
+  'Sweaters',
+  'Footwear',
+  'Bags',
+];
+
+const MALE_CATEGORIES = [
+  'All',
+  'Tshirts',
+  'Shirts',
+  'Polos',
+  'Jeans',
+  'Bottoms',
+  'Sweatshirts',
+  'Sweaters',
+  'Hoodies',
+  'Coats and Jackets',
+  'Shoes',
+];
+
 export default function App() {
   const [userSession, setUserSession] = useState(null);
   const [loadingSession, setLoadingSession] = useState(true);
@@ -34,6 +60,7 @@ export default function App() {
 
   // Wardrobe States
   const [items, setItems] = useState([]);
+  const [selectedCategory, setSelectedCategory] = useState('All');
   const [refreshing, setRefreshing] = useState(false);
   const [isSelectMode, setIsSelectMode] = useState(false);
   const [selectedItemIds, setSelectedItemIds] = useState([]);
@@ -50,6 +77,7 @@ export default function App() {
 
   useEffect(() => {
     if (userSession) {
+      setSelectedCategory('All');
       fetchItems();
     }
   }, [userSession]);
@@ -137,6 +165,7 @@ export default function App() {
           await AsyncStorage.removeItem('@atelier_session');
           setUserSession(null);
           setItems([]);
+          setSelectedCategory('All');
           setIsSelectMode(false);
           setSelectedItemIds([]);
         },
@@ -209,9 +238,8 @@ export default function App() {
         setUploadProgress(null);
         fetchItems();
 
-        setTimeout(() => {
-          fetchItems();
-        }, 3000 * Math.min(assets.length, 4));
+        setTimeout(() => fetchItems(), 3000);
+        setTimeout(() => fetchItems(), 7000);
 
         if (failedCount > 0) {
           Alert.alert('Partial Upload', `${failedCount} of ${assets.length} image(s) failed to upload.`);
@@ -259,6 +287,20 @@ export default function App() {
         },
       ]
     );
+  };
+
+  const hasValidBrand = (brand) => {
+    if (!brand) return false;
+    const cleaned = brand.trim().toLowerCase();
+    return cleaned !== '' && cleaned !== 'unbranded' && cleaned !== 'unknown' && cleaned !== 'none';
+  };
+
+  const formatCardSubtitle = (item) => {
+    const garmentType = item.type || item.sub_type;
+    const parts = hasValidBrand(item.brand)
+      ? [item.brand, item.color, garmentType]
+      : [item.color, garmentType];
+    return parts.filter((val) => val && val.trim() !== '').join(' • ');
   };
 
   if (loadingSession) {
@@ -354,6 +396,14 @@ export default function App() {
     );
   }
 
+  const availableCategories =
+    userSession.gender?.toLowerCase() === 'female' ? FEMALE_CATEGORIES : MALE_CATEGORIES;
+
+  const filteredItems =
+    selectedCategory === 'All'
+      ? items
+      : items.filter((item) => item.category === selectedCategory);
+
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.headerRow}>
@@ -367,9 +417,6 @@ export default function App() {
       </View>
 
       <View style={styles.controlsRow}>
-        <Text style={styles.wardrobeSubtitle}>
-          {isSelectMode ? `${selectedItemIds.length} Selected` : `${userSession.gender}'s Wardrobe`}
-        </Text>
 
         <View style={styles.actionButtons}>
           {isSelectMode ? (
@@ -394,6 +441,30 @@ export default function App() {
         </View>
       </View>
 
+      {/* Horizontal Category Filter Tabs */}
+      <View style={styles.categoryBarWrapper}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.categoryBarContent}
+        >
+          {availableCategories.map((category) => {
+            const isActive = selectedCategory === category;
+            return (
+              <TouchableOpacity
+                key={category}
+                style={[styles.categoryChip, isActive && styles.categoryChipActive]}
+                onPress={() => setSelectedCategory(category)}
+              >
+                <Text style={[styles.categoryChipText, isActive && styles.categoryChipTextActive]}>
+                  {category}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+      </View>
+
       {isSelectMode && selectedItemIds.length > 0 && (
         <TouchableOpacity style={styles.deleteBar} onPress={deleteSelectedItems}>
           <Text style={styles.deleteBarText}>Delete Selected ({selectedItemIds.length})</Text>
@@ -401,7 +472,7 @@ export default function App() {
       )}
 
       <FlatList
-        data={items}
+        data={filteredItems}
         keyExtractor={(item) => item.id.toString()}
         numColumns={2}
         contentContainerStyle={styles.gridContainer}
@@ -440,7 +511,7 @@ export default function App() {
                   {item.name}
                 </Text>
                 <Text style={styles.cardSub} numberOfLines={1}>
-                  {item.sub_type} • {item.color}
+                  {formatCardSubtitle(item)}
                 </Text>
               </View>
 
@@ -454,7 +525,11 @@ export default function App() {
         }}
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
-            <Text style={styles.emptyText}>Your wardrobe is empty. Tap "+ Add Photo" to start!</Text>
+            <Text style={styles.emptyText}>
+              {items.length === 0
+                ? 'Your wardrobe is empty. Tap "+ Add Photo" to start!'
+                : `No items in "${selectedCategory}".`}
+            </Text>
           </View>
         }
       />
@@ -478,9 +553,26 @@ export default function App() {
                   resizeMode="contain"
                 />
                 <Text style={styles.modalTitle}>{enlargedItem.name}</Text>
-                <Text style={styles.modalSub}>
-                  {enlargedItem.category} • {enlargedItem.sub_type} • {enlargedItem.color}
-                </Text>
+                <View style={styles.modalDetailsBox}>
+                  <Text style={styles.modalDetailRow}>
+                    <Text style={styles.modalDetailLabel}>Category: </Text>
+                    {enlargedItem.category || 'Uncategorized'}
+                  </Text>
+                  {hasValidBrand(enlargedItem.brand) && (
+                    <Text style={styles.modalDetailRow}>
+                      <Text style={styles.modalDetailLabel}>Brand: </Text>
+                      {enlargedItem.brand}
+                    </Text>
+                  )}
+                  <Text style={styles.modalDetailRow}>
+                    <Text style={styles.modalDetailLabel}>Color: </Text>
+                    {enlargedItem.color || 'Unknown'}
+                  </Text>
+                  <Text style={styles.modalDetailRow}>
+                    <Text style={styles.modalDetailLabel}>Type: </Text>
+                    {enlargedItem.type || enlargedItem.sub_type || 'Garment'}
+                  </Text>
+                </View>
               </>
             )}
           </View>
@@ -513,16 +605,22 @@ const styles = StyleSheet.create({
   loggedUserText: { fontSize: 13, color: '#f59e0b', fontWeight: '600' },
   logoutButton: { backgroundColor: '#1e293b', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6, borderWidth: 1, borderColor: '#334155' },
   logoutText: { color: '#ef4444', fontSize: 12, fontWeight: '600' },
-  controlsRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, marginBottom: 12 },
+  controlsRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, marginBottom: 10 },
   wardrobeSubtitle: { color: '#94a3b8', fontSize: 13, fontWeight: '500' },
   actionButtons: { flexDirection: 'row', gap: 8 },
   cancelBatchButton: { backgroundColor: '#334155', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8 },
   cancelBatchButtonText: { color: '#f8fafc', fontSize: 13, fontWeight: '600' },
   addButton: { backgroundColor: '#f59e0b', paddingHorizontal: 14, paddingVertical: 8, borderRadius: 8 },
   addButtonText: { color: '#0f172a', fontSize: 13, fontWeight: 'bold' },
+  categoryBarWrapper: { marginBottom: 10 },
+  categoryBarContent: { paddingHorizontal: 16, gap: 8 },
+  categoryChip: { backgroundColor: '#1e293b', paddingHorizontal: 14, paddingVertical: 7, borderRadius: 20, borderWidth: 1, borderColor: '#334155' },
+  categoryChipActive: { backgroundColor: '#f59e0b', borderColor: '#f59e0b' },
+  categoryChipText: { color: '#94a3b8', fontSize: 12, fontWeight: '600' },
+  categoryChipTextActive: { color: '#0f172a', fontWeight: 'bold' },
   deleteBar: { backgroundColor: '#ef4444', marginHorizontal: 16, marginBottom: 12, paddingVertical: 10, borderRadius: 8, alignItems: 'center' },
   deleteBarText: { color: '#fff', fontWeight: 'bold', fontSize: 14 },
-  gridContainer: { paddingHorizontal: 10 },
+  gridContainer: { paddingHorizontal: 10, paddingBottom: 20 },
   card: { flex: 1, backgroundColor: '#1e293b', margin: 6, borderRadius: 12, overflow: 'hidden', borderWidth: 1, borderColor: '#334155' },
   selectedCard: { borderColor: '#f59e0b', borderWidth: 2 },
   cardImage: { width: '100%', height: 160, backgroundColor: '#0f172a' },
@@ -539,6 +637,8 @@ const styles = StyleSheet.create({
   modalCloseButton: { alignSelf: 'flex-end', padding: 4, marginBottom: 8 },
   modalCloseText: { color: '#94a3b8', fontSize: 22, fontWeight: 'bold' },
   enlargedImage: { width: '100%', height: 320, backgroundColor: '#0f172a', borderRadius: 8, marginBottom: 16 },
-  modalTitle: { color: '#f8fafc', fontSize: 18, fontWeight: 'bold', textAlign: 'center', marginBottom: 4 },
-  modalSub: { color: '#94a3b8', fontSize: 13, textAlign: 'center' },
+  modalTitle: { color: '#f8fafc', fontSize: 18, fontWeight: 'bold', textAlign: 'center', marginBottom: 10 },
+  modalDetailsBox: { width: '100%', backgroundColor: '#0f172a', borderRadius: 10, padding: 12, gap: 6 },
+  modalDetailRow: { color: '#f8fafc', fontSize: 14 },
+  modalDetailLabel: { color: '#f59e0b', fontWeight: 'bold' },
 });

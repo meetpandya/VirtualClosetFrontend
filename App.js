@@ -19,7 +19,12 @@ import {
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
-import { API_BASE_URL, deleteBatchWardrobeItems, suggestWardrobeOutfit } from './api';
+import {
+  API_BASE_URL,
+  deleteBatchWardrobeItems,
+  suggestWardrobeOutfit,
+  updateWardrobeItem,
+} from './api';
 
 const FEMALE_CATEGORIES = [
   'All',
@@ -32,6 +37,8 @@ const FEMALE_CATEGORIES = [
   'Footwear',
   'Bags',
 ];
+
+const FEMALE_FOOTWEAR_TYPES = ['Sneakers', 'Sandals', 'Heels', 'Boots'];
 
 const MALE_CATEGORIES = [
   'All',
@@ -85,8 +92,14 @@ export default function App() {
   const [loadingOutfit, setLoadingOutfit] = useState(false);
   const [outfitResult, setOutfitResult] = useState(null);
 
-  // Enlarged Garment Modal State
+  // Enlarged & Edit Garment Modal States
   const [enlargedItem, setEnlargedItem] = useState(null);
+  const [isEditingGarment, setIsEditingGarment] = useState(false);
+  const [editCategory, setEditCategory] = useState('');
+  const [editColor, setEditColor] = useState('');
+  const [editType, setEditType] = useState('');
+  const [editBrand, setEditBrand] = useState('');
+  const [savingEdit, setSavingEdit] = useState(false);
 
   const HOST_ROOT = API_BASE_URL.replace('/api', '');
 
@@ -244,6 +257,60 @@ export default function App() {
       console.error('Failed to fetch items:', error);
     } finally {
       setRefreshing(false);
+    }
+  };
+
+  const openGarmentModal = (item) => {
+    setEnlargedItem(item);
+    setIsEditingGarment(false);
+    setEditCategory(item.category || '');
+    setEditColor(item.color || '');
+    setEditType(item.type || item.sub_type || '');
+    setEditBrand(item.brand || '');
+  };
+
+  const closeGarmentModal = () => {
+    setEnlargedItem(null);
+    setIsEditingGarment(false);
+  };
+
+  const handleSaveGarmentEdit = async () => {
+    if (!enlargedItem) return;
+    if (!editColor.trim() || !editType.trim() || !editCategory.trim()) {
+      Alert.alert('Missing Fields', 'Please provide a category, color, and garment type.');
+      return;
+    }
+
+    setSavingEdit(true);
+    try {
+      const result = await updateWardrobeItem(
+        enlargedItem.id,
+        {
+          category: editCategory.trim(),
+          color: editColor.trim(),
+          type: editType.trim(),
+          brand: editBrand.trim(),
+        },
+        userSession.email
+      );
+
+      if (result.status === 'success' && result.item) {
+        const updated = result.item;
+        setItems((prev) => prev.map((it) => (it.id === updated.id ? { ...it, ...updated } : it)));
+        setEnlargedItem((prev) => (prev ? { ...prev, ...updated } : updated));
+        setOutfitResult((prev) => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            items: prev.items.map((it) => (it.id === updated.id ? { ...it, ...updated } : it)),
+          };
+        });
+        setIsEditingGarment(false);
+      } else {
+        Alert.alert('Update Failed', result.message || 'Could not update garment details.');
+      }
+    } finally {
+      setSavingEdit(false);
     }
   };
 
@@ -557,6 +624,7 @@ export default function App() {
 
   const isFemale = userSession.gender?.toLowerCase() === 'female';
   const availableCategories = isFemale ? FEMALE_CATEGORIES : MALE_CATEGORIES;
+  const editableCategories = availableCategories.filter((c) => c !== 'All');
   const availableMoods = isFemale ? FEMALE_MOODS : MALE_MOODS;
 
   const filteredItems =
@@ -685,7 +753,7 @@ export default function App() {
                     if (isSelectMode) {
                       toggleSelectItem(item.id);
                     } else {
-                      setEnlargedItem(item);
+                      openGarmentModal(item);
                     }
                   }}
                   onLongPress={() => {
@@ -805,14 +873,17 @@ export default function App() {
             <View style={styles.stylistLoadingBox}>
               <ActivityIndicator size="large" color="#f59e0b" />
               <Text style={styles.stylistLoadingText}>
-                Checking local temperature & styling your {selectedMood.toLowerCase()} outfit...
+                Curating a Pinterest-inspired {selectedMood.toLowerCase()} outfit for today's weather...
               </Text>
             </View>
           ) : outfitResult ? (
             <View style={styles.outfitCard}>
               <View style={styles.outfitTitleRow}>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.outfitMoodTag}>{outfitResult.mood.toUpperCase()} LOOK</Text>
+                <View style={{ flex: 1, paddingRight: 8 }}>
+                  <Text style={styles.outfitMoodTag}>
+                    {outfitResult.mood.toUpperCase()}
+                    {outfitResult.aesthetic_vibe ? ` • ${outfitResult.aesthetic_vibe.toUpperCase()}` : ''}
+                  </Text>
                   <Text style={styles.outfitTitle}>{outfitResult.outfit_title}</Text>
                 </View>
                 <TouchableOpacity
@@ -833,10 +904,10 @@ export default function App() {
               <View style={styles.outfitGrid}>
                 {outfitResult.items.map((garment) => (
                   <TouchableOpacity
-                    key={garment.id}
+                    key={`${garment.slot || garment.category}-${garment.id}`}
                     style={styles.outfitPieceCard}
                     activeOpacity={0.85}
-                    onPress={() => setEnlargedItem(garment)}
+                    onPress={() => openGarmentModal(garment)}
                   >
                     <Image
                       source={{ uri: `${HOST_ROOT}${garment.image_path}` }}
@@ -844,7 +915,9 @@ export default function App() {
                       resizeMode="contain"
                     />
                     <View style={styles.outfitPieceInfo}>
-                      <Text style={styles.outfitPieceCategory}>{garment.category}</Text>
+                      <Text style={styles.outfitPieceCategory}>
+                        {garment.slot ? `${garment.slot} • ${garment.category}` : garment.category}
+                      </Text>
                       <Text style={styles.outfitPieceName} numberOfLines={1}>
                         {garment.name}
                       </Text>
@@ -859,7 +932,7 @@ export default function App() {
           ) : (
             <View style={styles.emptyContainer}>
               <Text style={styles.emptyText}>
-                Select a mood above to get weather-matched outfit recommendations from your wardrobe.
+                Select a mood above to get weather-matched, Pinterest-inspired outfit recommendations from your wardrobe.
               </Text>
             </View>
           )}
@@ -903,50 +976,195 @@ export default function App() {
         </View>
       </Modal>
 
-      {/* Enlarged Garment Details Modal */}
+      {/* Enlarged Garment Details & Edit Modal */}
       <Modal
         visible={enlargedItem !== null}
         transparent={true}
         animationType="fade"
-        onRequestClose={() => setEnlargedItem(null)}
+        onRequestClose={closeGarmentModal}
       >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <TouchableOpacity style={styles.modalCloseButton} onPress={() => setEnlargedItem(null)}>
-              <Text style={styles.modalCloseText}>✕</Text>
-            </TouchableOpacity>
-            {enlargedItem && (
-              <>
-                <Image
-                  source={{ uri: `${HOST_ROOT}${enlargedItem.image_path}` }}
-                  style={styles.enlargedImage}
-                  resizeMode="contain"
-                />
-                <Text style={styles.modalTitle}>{enlargedItem.name}</Text>
-                <View style={styles.modalDetailsBox}>
-                  <Text style={styles.modalDetailRow}>
-                    <Text style={styles.modalDetailLabel}>Category: </Text>
-                    {enlargedItem.category || 'Uncategorized'}
-                  </Text>
-                  {hasValidBrand(enlargedItem.brand) && (
-                    <Text style={styles.modalDetailRow}>
-                      <Text style={styles.modalDetailLabel}>Brand: </Text>
-                      {enlargedItem.brand}
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={styles.modalOverlay}
+        >
+          <ScrollView
+            contentContainerStyle={styles.modalScrollWrapper}
+            keyboardShouldPersistTaps="handled"
+          >
+            <View style={styles.modalContent}>
+              <View style={styles.modalTopActionsRow}>
+                {enlargedItem && enlargedItem.category !== 'Processing' ? (
+                  <TouchableOpacity
+                    style={[styles.modalEditButton, isEditingGarment && styles.modalEditButtonActive]}
+                    onPress={() => {
+                      if (isEditingGarment) {
+                        setIsEditingGarment(false);
+                      } else {
+                        setEditCategory(enlargedItem.category || editableCategories[0]);
+                        setEditColor(enlargedItem.color || '');
+                        setEditType(enlargedItem.type || enlargedItem.sub_type || '');
+                        setEditBrand(enlargedItem.brand || '');
+                        setIsEditingGarment(true);
+                      }
+                    }}
+                  >
+                    <Text
+                      style={[
+                        styles.modalEditButtonText,
+                        isEditingGarment && styles.modalEditButtonTextActive,
+                      ]}
+                    >
+                      {isEditingGarment ? 'Cancel Edit' : 'Edit Details'}
                     </Text>
+                  </TouchableOpacity>
+                ) : (
+                  <View />
+                )}
+
+                <TouchableOpacity style={styles.modalCloseButton} onPress={closeGarmentModal}>
+                  <Text style={styles.modalCloseText}>✕</Text>
+                </TouchableOpacity>
+              </View>
+
+              {enlargedItem && (
+                <>
+                  <Image
+                    source={{ uri: `${HOST_ROOT}${enlargedItem.image_path}` }}
+                    style={[styles.enlargedImage, isEditingGarment && { height: 200 }]}
+                    resizeMode="contain"
+                  />
+
+                  {!isEditingGarment ? (
+                    <>
+                      <Text style={styles.modalTitle}>{enlargedItem.name}</Text>
+                      <View style={styles.modalDetailsBox}>
+                        <Text style={styles.modalDetailRow}>
+                          <Text style={styles.modalDetailLabel}>Category: </Text>
+                          {enlargedItem.category || 'Uncategorized'}
+                        </Text>
+                        {hasValidBrand(enlargedItem.brand) && (
+                          <Text style={styles.modalDetailRow}>
+                            <Text style={styles.modalDetailLabel}>Brand: </Text>
+                            {enlargedItem.brand}
+                          </Text>
+                        )}
+                        <Text style={styles.modalDetailRow}>
+                          <Text style={styles.modalDetailLabel}>Color: </Text>
+                          {enlargedItem.color || 'Unknown'}
+                        </Text>
+                        <Text style={styles.modalDetailRow}>
+                          <Text style={styles.modalDetailLabel}>Type: </Text>
+                          {enlargedItem.type || enlargedItem.sub_type || 'Garment'}
+                        </Text>
+                      </View>
+                    </>
+                  ) : (
+                    <View style={styles.editFormContainer}>
+                      <Text style={styles.editFieldLabel}>Category</Text>
+                      <ScrollView
+                        horizontal
+                        showsHorizontalScrollIndicator={false}
+                        contentContainerStyle={styles.editCategoryScroll}
+                      >
+                        {editableCategories.map((cat) => {
+                          const active = editCategory === cat;
+                          return (
+                            <TouchableOpacity
+                              key={cat}
+                              style={[styles.editCatChip, active && styles.editCatChipActive]}
+                              onPress={() => {
+                                setEditCategory(cat);
+                                if (
+                                  isFemale &&
+                                  cat === 'Footwear' &&
+                                  !FEMALE_FOOTWEAR_TYPES.includes(editType)
+                                ) {
+                                  setEditType('Sneakers');
+                                }
+                              }}
+                            >
+                              <Text
+                                style={[
+                                  styles.editCatChipText,
+                                  active && styles.editCatChipTextActive,
+                                ]}
+                              >
+                                {cat}
+                              </Text>
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </ScrollView>
+
+                      <Text style={styles.editFieldLabel}>Color</Text>
+                      <TextInput
+                        style={styles.editInput}
+                        value={editColor}
+                        onChangeText={setEditColor}
+                        placeholder="e.g. Navy Blue, Cream, Charcoal"
+                        placeholderTextColor="#64748b"
+                      />
+
+                      <Text style={styles.editFieldLabel}>Type</Text>
+                      {isFemale && editCategory === 'Footwear' ? (
+                        <View style={styles.footwearOptionsRow}>
+                          {FEMALE_FOOTWEAR_TYPES.map((fw) => {
+                            const active = editType === fw;
+                            return (
+                              <TouchableOpacity
+                                key={fw}
+                                style={[styles.editCatChip, active && styles.editCatChipActive]}
+                                onPress={() => setEditType(fw)}
+                              >
+                                <Text
+                                  style={[
+                                    styles.editCatChipText,
+                                    active && styles.editCatChipTextActive,
+                                  ]}
+                                >
+                                  {fw}
+                                </Text>
+                              </TouchableOpacity>
+                            );
+                          })}
+                        </View>
+                      ) : (
+                        <TextInput
+                          style={styles.editInput}
+                          value={editType}
+                          onChangeText={setEditType}
+                          placeholder="e.g. Oversized Blazer, Crewneck T-Shirt"
+                          placeholderTextColor="#64748b"
+                        />
+                      )}
+
+                      <Text style={styles.editFieldLabel}>Brand (Optional)</Text>
+                      <TextInput
+                        style={styles.editInput}
+                        value={editBrand}
+                        onChangeText={setEditBrand}
+                        placeholder="Leave blank if unbranded"
+                        placeholderTextColor="#64748b"
+                      />
+
+                      <TouchableOpacity
+                        style={styles.saveEditButton}
+                        onPress={handleSaveGarmentEdit}
+                        disabled={savingEdit}
+                      >
+                        {savingEdit ? (
+                          <ActivityIndicator color="#0f172a" />
+                        ) : (
+                          <Text style={styles.saveEditButtonText}>Save Changes</Text>
+                        )}
+                      </TouchableOpacity>
+                    </View>
                   )}
-                  <Text style={styles.modalDetailRow}>
-                    <Text style={styles.modalDetailLabel}>Color: </Text>
-                    {enlargedItem.color || 'Unknown'}
-                  </Text>
-                  <Text style={styles.modalDetailRow}>
-                    <Text style={styles.modalDetailLabel}>Type: </Text>
-                    {enlargedItem.type || enlargedItem.sub_type || 'Garment'}
-                  </Text>
-                </View>
-              </>
-            )}
-          </View>
-        </View>
+                </>
+              )}
+            </View>
+          </ScrollView>
+        </KeyboardAvoidingView>
       </Modal>
     </SafeAreaView>
   );
@@ -1071,7 +1289,13 @@ const styles = StyleSheet.create({
   outfitPieceName: { color: '#f8fafc', fontSize: 13, fontWeight: 'bold' },
   outfitPieceSub: { color: '#94a3b8', fontSize: 11, marginTop: 2 },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0, 0, 0, 0.85)', justifyContent: 'center', alignItems: 'center', padding: 20 },
-  modalContent: { width: '100%', backgroundColor: '#1e293b', borderRadius: 16, padding: 20, alignItems: 'center', borderWidth: 1, borderColor: '#334155' },
+  modalScrollWrapper: { flexGrow: 1, justifyContent: 'center', alignItems: 'center', width: '100%' },
+  modalContent: { width: '100%', minWidth: 310, backgroundColor: '#1e293b', borderRadius: 16, padding: 20, alignItems: 'center', borderWidth: 1, borderColor: '#334155' },
+  modalTopActionsRow: { width: '100%', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
+  modalEditButton: { backgroundColor: '#0f172a', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, borderWidth: 1, borderColor: '#f59e0b' },
+  modalEditButtonActive: { backgroundColor: '#334155', borderColor: '#64748b' },
+  modalEditButtonText: { color: '#f59e0b', fontSize: 12, fontWeight: 'bold' },
+  modalEditButtonTextActive: { color: '#f8fafc' },
   disclaimerTitle: { color: '#f8fafc', fontSize: 18, fontWeight: 'bold', textAlign: 'center', marginBottom: 12 },
   disclaimerBody: { color: '#cbd5e1', fontSize: 14, lineHeight: 20, textAlign: 'center', marginBottom: 12 },
   disclaimerButtonsRow: { flexDirection: 'row', gap: 10, marginTop: 8, width: '100%' },
@@ -1079,11 +1303,22 @@ const styles = StyleSheet.create({
   disclaimerSecondaryText: { color: '#94a3b8', fontSize: 14, fontWeight: '600' },
   disclaimerPrimaryBtn: { flex: 1, backgroundColor: '#f59e0b', paddingVertical: 12, borderRadius: 8, alignItems: 'center' },
   disclaimerPrimaryText: { color: '#0f172a', fontSize: 14, fontWeight: 'bold' },
-  modalCloseButton: { alignSelf: 'flex-end', padding: 4, marginBottom: 8 },
+  modalCloseButton: { padding: 4 },
   modalCloseText: { color: '#94a3b8', fontSize: 22, fontWeight: 'bold' },
-  enlargedImage: { width: '100%', height: 320, backgroundColor: '#cbd5e1', borderRadius: 8, marginBottom: 16 },
+  enlargedImage: { width: '100%', height: 280, backgroundColor: '#cbd5e1', borderRadius: 8, marginBottom: 14 },
   modalTitle: { color: '#f8fafc', fontSize: 18, fontWeight: 'bold', textAlign: 'center', marginBottom: 10 },
   modalDetailsBox: { width: '100%', backgroundColor: '#0f172a', borderRadius: 10, padding: 12, gap: 6 },
   modalDetailRow: { color: '#f8fafc', fontSize: 14 },
   modalDetailLabel: { color: '#f59e0b', fontWeight: 'bold' },
+  editFormContainer: { width: '100%', marginTop: 4 },
+  editFieldLabel: { color: '#f59e0b', fontSize: 12, fontWeight: 'bold', marginBottom: 6, marginTop: 8 },
+  editCategoryScroll: { gap: 6, paddingBottom: 4 },
+  editCatChip: { backgroundColor: '#0f172a', paddingHorizontal: 12, paddingVertical: 7, borderRadius: 16, borderWidth: 1, borderColor: '#334155' },
+  editCatChipActive: { backgroundColor: '#f59e0b', borderColor: '#f59e0b' },
+  editCatChipText: { color: '#94a3b8', fontSize: 12, fontWeight: '600' },
+  editCatChipTextActive: { color: '#0f172a', fontWeight: 'bold' },
+  footwearOptionsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 4 },
+  editInput: { backgroundColor: '#0f172a', color: '#f8fafc', paddingHorizontal: 12, paddingVertical: 10, borderRadius: 8, fontSize: 14, borderWidth: 1, borderColor: '#334155' },
+  saveEditButton: { backgroundColor: '#f59e0b', paddingVertical: 12, borderRadius: 8, alignItems: 'center', marginTop: 14 },
+  saveEditButtonText: { color: '#0f172a', fontSize: 14, fontWeight: 'bold' },
 });

@@ -31,6 +31,37 @@ export const fetchWardrobeItems = async (userId) => {
   }
 };
 
+export const updateWardrobeItem = async (itemId, { category, color, type, brand }, userId) => {
+  const targetUrl = `${API_BASE_URL}/items/${itemId}`;
+
+  try {
+    const response = await fetch(targetUrl, {
+      method: 'PUT',
+      headers: {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json',
+        'X-User-Id': userId,
+      },
+      body: JSON.stringify({
+        category,
+        color,
+        type,
+        brand,
+      }),
+    });
+
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.detail || `Server returned HTTP ${response.status}`);
+    }
+
+    return data;
+  } catch (error) {
+    console.error('Update item error:', error);
+    return { status: 'error', message: error.message };
+  }
+};
+
 export const deleteBatchWardrobeItems = async (itemIds = [], userId) => {
   const targetUrl = `${API_BASE_URL}/items/batch-delete`;
   const numericIds = itemIds.map((id) => Number(id));

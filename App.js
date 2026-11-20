@@ -19,11 +19,16 @@ import {
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
+import { Ionicons } from '@expo/vector-icons';
 import {
   API_BASE_URL,
   deleteBatchWardrobeItems,
   suggestWardrobeOutfit,
   updateWardrobeItem,
+  sendPasswordResetCode,
+  confirmPasswordReset,
+  fetchAccountDetails,
+  deleteUserAccount,
 } from './api';
 
 const FEMALE_CATEGORIES = [
@@ -57,18 +62,82 @@ const MALE_CATEGORIES = [
 const FEMALE_MOODS = ['Casual', 'Work', 'Date', 'Cute'];
 const MALE_MOODS = ['Casual', 'Work', 'Date'];
 
+function PasswordField({
+  value,
+  onChangeText,
+  placeholder,
+  placeholderTextColor = '#888',
+  containerStyle,
+  inputStyle,
+  iconSize = 20,
+  resetKey,
+}) {
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    setVisible(false);
+  }, [resetKey]);
+
+  return (
+    <View style={[styles.passwordWrapper, containerStyle]}>
+      <TextInput
+        style={[styles.passwordTextInput, inputStyle]}
+        placeholder={placeholder}
+        placeholderTextColor={placeholderTextColor}
+        secureTextEntry={!visible}
+        autoCapitalize="none"
+        autoCorrect={false}
+        value={value}
+        onChangeText={onChangeText}
+      />
+      <TouchableOpacity
+        onPress={() => setVisible((prev) => !prev)}
+        style={styles.eyeButton}
+        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+        accessibilityRole="button"
+        accessibilityLabel={visible ? 'Hide password' : 'Show password'}
+      >
+        <Ionicons
+          name={visible ? 'eye-off-outline' : 'eye-outline'}
+          size={iconSize}
+          color="#94a3b8"
+        />
+      </TouchableOpacity>
+    </View>
+  );
+}
+
 export default function App() {
   const [userSession, setUserSession] = useState(null);
   const [loadingSession, setLoadingSession] = useState(true);
 
-  // Auth Form States
-  const [isRegistering, setIsRegistering] = useState(false);
+  // Auth Form States ('login' | 'register' | 'reset')
+  const [authMode, setAuthMode] = useState('login');
   const [firstNameInput, setFirstNameInput] = useState('');
   const [lastNameInput, setLastNameInput] = useState('');
   const [emailInput, setEmailInput] = useState('');
   const [passwordInput, setPasswordInput] = useState('');
+  const [confirmPasswordInput, setConfirmPasswordInput] = useState('');
+  const [resetCodeInput, setResetCodeInput] = useState('');
+  const [resetCodeSent, setResetCodeSent] = useState(false);
+  const [sendingResetCode, setSendingResetCode] = useState(false);
   const [genderInput, setGenderInput] = useState('Male');
   const [authLoading, setAuthLoading] = useState(false);
+
+  // Account Modal States
+  const [showAccountModal, setShowAccountModal] = useState(false);
+  const [accountDetails, setAccountDetails] = useState(null);
+  const [loadingAccount, setLoadingAccount] = useState(false);
+  const [showAccountResetForm, setShowAccountResetForm] = useState(false);
+  const [accountResetCodeSent, setAccountResetCodeSent] = useState(false);
+  const [sendingAccountCode, setSendingAccountCode] = useState(false);
+  const [accountResetCode, setAccountResetCode] = useState('');
+  const [newAccountPw, setNewAccountPw] = useState('');
+  const [confirmNewAccountPw, setConfirmNewAccountPw] = useState('');
+  const [updatingAccountPw, setUpdatingAccountPw] = useState(false);
+  const [showDeleteConfirmBox, setShowDeleteConfirmBox] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState('');
+  const [deletingAccount, setDeletingAccount] = useState(false);
 
   // Main View Tab: 'wardrobe' | 'stylist'
   const [activeTab, setActiveTab] = useState('wardrobe');
@@ -165,30 +234,94 @@ export default function App() {
     return `${weather.temp_c}°C • ${weather.condition}`;
   };
 
+  const handleSendResetCodeFromAuth = async () => {
+    if (!emailInput.trim()) {
+      Alert.alert('Email Required', 'Please enter your registered email address first.');
+      return;
+    }
+
+    setSendingResetCode(true);
+    try {
+      const result = await sendPasswordResetCode(emailInput.trim());
+      if (result.status === 'success') {
+        setResetCodeSent(true);
+        setResetCodeInput('');
+        Alert.alert('Code Sent', result.message || 'Check your email for the 6-digit authentication code.');
+      } else {
+        Alert.alert('Could Not Send Code', result.message || 'Failed to send authentication code.');
+      }
+    } finally {
+      setSendingResetCode(false);
+    }
+  };
+
+  const handlePasswordReset = async () => {
+    if (!emailInput.trim() || !resetCodeInput.trim() || !passwordInput || !confirmPasswordInput) {
+      Alert.alert('Missing Fields', 'Please enter your email, the 6-digit code, and your new password.');
+      return;
+    }
+    if (passwordInput !== confirmPasswordInput) {
+      Alert.alert('Password Mismatch', 'New password and confirm password do not match.');
+      return;
+    }
+
+    setAuthLoading(true);
+    try {
+      const result = await confirmPasswordReset({
+        email: emailInput.trim(),
+        code: resetCodeInput.trim(),
+        newPassword: passwordInput,
+      });
+
+      if (result.status === 'success') {
+        Alert.alert('Password Reset', result.message || 'Your password has been updated.');
+        setPasswordInput('');
+        setConfirmPasswordInput('');
+        setResetCodeInput('');
+        setResetCodeSent(false);
+        setAuthMode('login');
+      } else {
+        Alert.alert('Reset Failed', result.message || 'Could not reset password.');
+      }
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
   const handleAuth = async () => {
+    if (authMode === 'reset') {
+      if (!resetCodeSent) {
+        handleSendResetCodeFromAuth();
+      } else {
+        handlePasswordReset();
+      }
+      return;
+    }
+
     if (!emailInput.trim() || !passwordInput.trim()) {
       Alert.alert('Error', 'Please enter your email and password.');
       return;
     }
-    if (isRegistering && !firstNameInput.trim()) {
+    if (authMode === 'register' && !firstNameInput.trim()) {
       Alert.alert('Error', 'Please enter your first name.');
       return;
     }
 
     setAuthLoading(true);
-    const endpoint = isRegistering ? '/api/register' : '/api/login';
-    const payload = isRegistering
-      ? {
-          first_name: firstNameInput.trim(),
-          last_name: lastNameInput.trim(),
-          email: emailInput.trim(),
-          password: passwordInput,
-          gender: genderInput,
-        }
-      : {
-          email: emailInput.trim(),
-          password: passwordInput,
-        };
+    const endpoint = authMode === 'register' ? '/api/register' : '/api/login';
+    const payload =
+      authMode === 'register'
+        ? {
+            first_name: firstNameInput.trim(),
+            last_name: lastNameInput.trim(),
+            email: emailInput.trim(),
+            password: passwordInput,
+            gender: genderInput,
+          }
+        : {
+            email: emailInput.trim(),
+            password: passwordInput,
+          };
 
     try {
       const response = await fetch(`${HOST_ROOT}${endpoint}`, {
@@ -207,14 +340,19 @@ export default function App() {
         const sessionData = {
           email: data.user_id,
           firstName: data.first_name,
+          lastName: data.last_name || '',
           gender: data.gender,
         };
         await AsyncStorage.setItem('@atelier_session', JSON.stringify(sessionData));
         setUserSession(sessionData);
         setEmailInput('');
         setPasswordInput('');
+        setConfirmPasswordInput('');
+        setResetCodeInput('');
+        setResetCodeSent(false);
         setFirstNameInput('');
         setLastNameInput('');
+        setAuthMode('login');
       } else {
         Alert.alert('Authentication Failed', data.detail || 'Something went wrong.');
       }
@@ -233,6 +371,7 @@ export default function App() {
         style: 'destructive',
         onPress: async () => {
           await AsyncStorage.removeItem('@atelier_session');
+          setShowAccountModal(false);
           setUserSession(null);
           setItems([]);
           setSelectedCategory('All');
@@ -242,6 +381,144 @@ export default function App() {
         },
       },
     ]);
+  };
+
+  const openAccountModal = async () => {
+    setShowAccountModal(true);
+    setShowAccountResetForm(false);
+    setAccountResetCodeSent(false);
+    setAccountResetCode('');
+    setNewAccountPw('');
+    setConfirmNewAccountPw('');
+    setShowDeleteConfirmBox(false);
+    setDeleteConfirmText('');
+    setLoadingAccount(true);
+
+    try {
+      const res = await fetchAccountDetails(userSession.email);
+      if (res.status === 'success' && res.account) {
+        setAccountDetails(res.account);
+      }
+    } finally {
+      setLoadingAccount(false);
+    }
+  };
+
+  const closeAccountModal = () => {
+    setShowAccountModal(false);
+    setShowAccountResetForm(false);
+    setAccountResetCodeSent(false);
+    setShowDeleteConfirmBox(false);
+    setDeleteConfirmText('');
+  };
+
+  const handleSendAccountResetCode = async () => {
+    setSendingAccountCode(true);
+    try {
+      const res = await sendPasswordResetCode(userSession.email);
+      if (res.status === 'success') {
+        setAccountResetCodeSent(true);
+        setAccountResetCode('');
+        Alert.alert('Code Sent', res.message || `Authentication code sent to ${userSession.email}.`);
+      } else {
+        Alert.alert('Could Not Send Code', res.message || 'Failed to send authentication code.');
+      }
+    } finally {
+      setSendingAccountCode(false);
+    }
+  };
+
+  const handleInAccountPasswordUpdate = async () => {
+    if (!accountResetCode.trim() || !newAccountPw || !confirmNewAccountPw) {
+      Alert.alert('Missing Fields', 'Please enter the 6-digit code and your new password fields.');
+      return;
+    }
+    if (newAccountPw !== confirmNewAccountPw) {
+      Alert.alert('Password Mismatch', 'New password and confirm password do not match.');
+      return;
+    }
+
+    setUpdatingAccountPw(true);
+    try {
+      const res = await confirmPasswordReset({
+        email: userSession.email,
+        code: accountResetCode.trim(),
+        newPassword: newAccountPw,
+      });
+
+      if (res.status === 'success') {
+        Alert.alert('Password Updated', res.message || 'Your password has been updated.');
+        setAccountResetCode('');
+        setAccountResetCodeSent(false);
+        setNewAccountPw('');
+        setConfirmNewAccountPw('');
+        setShowAccountResetForm(false);
+      } else {
+        Alert.alert('Update Failed', res.message || 'Could not update password.');
+      }
+    } finally {
+      setUpdatingAccountPw(false);
+    }
+  };
+
+  const promptAccountDeletionFlow = () => {
+    Alert.alert(
+      'Delete Account?',
+      'This will permanently delete your account, your profile, and every uploaded garment image in your wardrobe. This action cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Continue',
+          style: 'destructive',
+          onPress: () => {
+            setShowAccountResetForm(false);
+            setDeleteConfirmText('');
+            setShowDeleteConfirmBox(true);
+          },
+        },
+      ]
+    );
+  };
+
+  const confirmAndDeleteAccount = async () => {
+    if (deleteConfirmText.trim().toUpperCase() !== 'DELETE') {
+      Alert.alert('Confirmation Required', 'Please type DELETE in the box to confirm account deletion.');
+      return;
+    }
+
+    Alert.alert(
+      'Final Confirmation',
+      `Are you completely sure you want to permanently delete ${userSession.email}?`,
+      [
+        { text: 'Keep Account', style: 'cancel' },
+        {
+          text: 'Delete Forever',
+          style: 'destructive',
+          onPress: async () => {
+            setDeletingAccount(true);
+            try {
+              const res = await deleteUserAccount(userSession.email);
+              if (res.status === 'success') {
+                await AsyncStorage.removeItem('@atelier_session');
+                setShowAccountModal(false);
+                setShowDeleteConfirmBox(false);
+                setDeleteConfirmText('');
+                setAccountDetails(null);
+                setEnlargedItem(null);
+                setItems([]);
+                setOutfitResult(null);
+                setUserSession(null);
+                Alert.alert('Account Deleted', 'Your account and wardrobe data have been permanently removed.');
+              } else {
+                Alert.alert('Deletion Failed', res.message || 'Could not delete account.');
+              }
+            } finally {
+              setDeletingAccount(false);
+            }
+          },
+        },
+      ]
+    );
   };
 
   const fetchItems = async () => {
@@ -538,14 +815,41 @@ export default function App() {
   }
 
   if (!userSession) {
+    const isRegister = authMode === 'register';
+    const isReset = authMode === 'reset';
+
     return (
       <SafeAreaView style={styles.container}>
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
-          <ScrollView contentContainerStyle={styles.authContainer}>
+          <ScrollView contentContainerStyle={styles.authContainer} keyboardShouldPersistTaps="handled">
             <Text style={styles.appTitle}>Atelier</Text>
-            <Text style={styles.appSubtitle}>Luxury Digital Wardrobe</Text>
+            <Text style={styles.appSubtitle}>
+              {isReset ? 'Reset Account Password' : 'Luxury Digital Wardrobe'}
+            </Text>
 
-            {isRegistering && (
+            {isReset && (
+              <Text style={styles.resetHelperText}>
+                Enter your registered email address to receive a 6-digit authentication code.
+              </Text>
+            )}
+
+            <TextInput
+              style={styles.input}
+              placeholder="Email Address"
+              placeholderTextColor="#888"
+              autoCapitalize="none"
+              keyboardType="email-address"
+              value={emailInput}
+              onChangeText={(text) => {
+                setEmailInput(text);
+                if (isReset && resetCodeSent) {
+                  setResetCodeSent(false);
+                  setResetCodeInput('');
+                }
+              }}
+            />
+
+            {isRegister && (
               <>
                 <TextInput
                   style={styles.input}
@@ -554,6 +858,7 @@ export default function App() {
                   value={firstNameInput}
                   onChangeText={setFirstNameInput}
                 />
+
                 <TextInput
                   style={styles.input}
                   placeholder="Last Name (Optional)"
@@ -584,36 +889,114 @@ export default function App() {
               </>
             )}
 
-            <TextInput
-              style={styles.input}
-              placeholder="Email Address"
-              placeholderTextColor="#888"
-              autoCapitalize="none"
-              keyboardType="email-address"
-              value={emailInput}
-              onChangeText={setEmailInput}
-            />
-            <TextInput
-              style={styles.input}
-              placeholder="Password"
-              placeholderTextColor="#888"
-              secureTextEntry
-              value={passwordInput}
-              onChangeText={setPasswordInput}
-            />
+            {isReset && resetCodeSent && (
+              <>
+                <View style={styles.codeSentBanner}>
+                  <Text style={styles.codeSentBannerText}>
+                    Authentication code sent to {emailInput.trim().toLowerCase()}
+                  </Text>
+                  <TouchableOpacity
+                    onPress={handleSendResetCodeFromAuth}
+                    disabled={sendingResetCode}
+                  >
+                    <Text style={styles.resendCodeLink}>
+                      {sendingResetCode ? 'Sending...' : 'Resend Code'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
 
-            <TouchableOpacity style={styles.primaryButton} onPress={handleAuth} disabled={authLoading}>
-              {authLoading ? (
+                <TextInput
+                  style={styles.input}
+                  placeholder="6-Digit Authentication Code"
+                  placeholderTextColor="#888"
+                  keyboardType="number-pad"
+                  maxLength={6}
+                  value={resetCodeInput}
+                  onChangeText={setResetCodeInput}
+                />
+
+                <PasswordField
+                  placeholder="New Password"
+                  placeholderTextColor="#888"
+                  value={passwordInput}
+                  onChangeText={setPasswordInput}
+                  resetKey={`${authMode}-${resetCodeSent}`}
+                />
+
+                <PasswordField
+                  placeholder="Confirm New Password"
+                  placeholderTextColor="#888"
+                  value={confirmPasswordInput}
+                  onChangeText={setConfirmPasswordInput}
+                  resetKey={`${authMode}-${resetCodeSent}`}
+                />
+              </>
+            )}
+
+            {!isReset && (
+              <PasswordField
+                placeholder="Password"
+                placeholderTextColor="#888"
+                value={passwordInput}
+                onChangeText={setPasswordInput}
+                resetKey={authMode}
+              />
+            )}
+
+            {authMode === 'login' && (
+              <TouchableOpacity
+                onPress={() => {
+                  setPasswordInput('');
+                  setConfirmPasswordInput('');
+                  setResetCodeInput('');
+                  setResetCodeSent(false);
+                  setAuthMode('reset');
+                }}
+                style={styles.forgotPasswordRow}
+              >
+                <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
+              </TouchableOpacity>
+            )}
+
+            <TouchableOpacity
+              style={styles.primaryButton}
+              onPress={handleAuth}
+              disabled={authLoading || sendingResetCode}
+            >
+              {authLoading || sendingResetCode ? (
                 <ActivityIndicator color="#0f172a" />
               ) : (
-                <Text style={styles.primaryButtonText}>{isRegistering ? 'Create Account' : 'Sign In'}</Text>
+                <Text style={styles.primaryButtonText}>
+                  {isReset
+                    ? resetCodeSent
+                      ? 'Verify & Update Password'
+                      : 'Send Authentication Code'
+                    : isRegister
+                    ? 'Create Account'
+                    : 'Sign In'}
+                </Text>
               )}
             </TouchableOpacity>
 
-            <TouchableOpacity onPress={() => setIsRegistering(!isRegistering)} style={styles.switchAuthText}>
+            <TouchableOpacity
+              onPress={() => {
+                setPasswordInput('');
+                setConfirmPasswordInput('');
+                setResetCodeInput('');
+                setResetCodeSent(false);
+                setAuthMode(authMode === 'login' ? 'register' : 'login');
+              }}
+              style={styles.switchAuthText}
+            >
               <Text style={styles.switchTextNormal}>
-                {isRegistering ? 'Already have an account? ' : "Don't have an account? "}
-                <Text style={styles.switchTextHighlight}>{isRegistering ? 'Sign In' : 'Register'}</Text>
+                {isReset
+                  ? 'Remembered your password? '
+                  : isRegister
+                  ? 'Already have an account? '
+                  : "Don't have an account? "}
+                <Text style={styles.switchTextHighlight}>
+                  {isReset || isRegister ? 'Sign In' : 'Register'}
+                </Text>
               </Text>
             </TouchableOpacity>
           </ScrollView>
@@ -637,6 +1020,17 @@ export default function App() {
     outputRange: [0, 35],
   });
 
+  const displayFirstName = accountDetails?.first_name ?? userSession.firstName;
+  const displayLastName = accountDetails?.last_name ?? userSession.lastName ?? '';
+  const displayFullName = [displayFirstName, displayLastName].filter(Boolean).join(' ');
+  const displayEmail = accountDetails?.email ?? userSession.email;
+  const displayGender = accountDetails?.gender ?? userSession.gender;
+  const displayGarmentCount =
+    accountDetails?.garment_count !== undefined ? accountDetails.garment_count : items.length;
+  const displayMemberSince = accountDetails?.created_at
+    ? accountDetails.created_at.split(' ')[0]
+    : null;
+
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.headerRow}>
@@ -644,9 +1038,14 @@ export default function App() {
           <Text style={styles.headerTitle}>Atelier</Text>
           <Text style={styles.loggedUserText}>Welcome back, {userSession.firstName}!</Text>
         </View>
-        <TouchableOpacity onPress={handleLogout} style={styles.logoutButton}>
-          <Text style={styles.logoutText}>Logout</Text>
-        </TouchableOpacity>
+        <View style={styles.headerActionsGroup}>
+          <TouchableOpacity onPress={openAccountModal} style={styles.accountButton}>
+            <Text style={styles.accountButtonText}>Account</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={handleLogout} style={styles.logoutButton}>
+            <Text style={styles.logoutText}>Logout</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* Main Mode Switcher: Wardrobe vs Outfit Stylist */}
@@ -939,6 +1338,212 @@ export default function App() {
         </ScrollView>
       )}
 
+      {/* Account Details, Email-Verified Password Reset & Delete Account Modal */}
+      <Modal
+        visible={showAccountModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={closeAccountModal}
+      >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={styles.modalOverlay}
+        >
+          <ScrollView
+            contentContainerStyle={styles.modalScrollWrapper}
+            keyboardShouldPersistTaps="handled"
+          >
+            <View style={styles.modalContent}>
+              <View style={styles.modalTopActionsRow}>
+                <Text style={styles.accountModalHeaderTitle}>Account Details</Text>
+                <TouchableOpacity style={styles.modalCloseButton} onPress={closeAccountModal}>
+                  <Text style={styles.modalCloseText}>✕</Text>
+                </TouchableOpacity>
+              </View>
+
+              {loadingAccount && !accountDetails ? (
+                <ActivityIndicator size="small" color="#f59e0b" style={{ marginVertical: 20 }} />
+              ) : (
+                <View style={styles.modalDetailsBox}>
+                  <Text style={styles.modalDetailRow}>
+                    <Text style={styles.modalDetailLabel}>Name: </Text>
+                    {displayFullName || 'Member'}
+                  </Text>
+                  <Text style={styles.modalDetailRow}>
+                    <Text style={styles.modalDetailLabel}>Email: </Text>
+                    {displayEmail}
+                  </Text>
+                  <Text style={styles.modalDetailRow}>
+                    <Text style={styles.modalDetailLabel}>Wardrobe Type: </Text>
+                    {displayGender}
+                  </Text>
+                  <Text style={styles.modalDetailRow}>
+                    <Text style={styles.modalDetailLabel}>Garments Saved: </Text>
+                    {displayGarmentCount}
+                  </Text>
+                  {displayMemberSince && (
+                    <Text style={styles.modalDetailRow}>
+                      <Text style={styles.modalDetailLabel}>Member Since: </Text>
+                      {displayMemberSince}
+                    </Text>
+                  )}
+                </View>
+              )}
+
+              {/* Reset Password Section inside Account Details (via Email Authentication Code) */}
+              <View style={styles.accountSectionDivider} />
+              <TouchableOpacity
+                style={styles.accountActionRowBtn}
+                onPress={() => {
+                  setShowDeleteConfirmBox(false);
+                  setShowAccountResetForm((prev) => !prev);
+                }}
+              >
+                <Text style={styles.accountActionRowBtnText}>
+                  {showAccountResetForm ? 'Cancel Password Reset' : 'Reset Password'}
+                </Text>
+                <Text style={styles.accountActionChevron}>{showAccountResetForm ? '▲' : '▼'}</Text>
+              </TouchableOpacity>
+
+              {showAccountResetForm && (
+                <View style={styles.accountSubCard}>
+                  <Text style={styles.accountResetNote}>
+                    We will send a 6-digit authentication code to{' '}
+                    <Text style={{ color: '#f8fafc', fontWeight: 'bold' }}>{displayEmail}</Text> to verify your reset.
+                  </Text>
+
+                  {!accountResetCodeSent ? (
+                    <TouchableOpacity
+                      style={styles.saveEditButton}
+                      onPress={handleSendAccountResetCode}
+                      disabled={sendingAccountCode}
+                    >
+                      {sendingAccountCode ? (
+                        <ActivityIndicator color="#0f172a" />
+                      ) : (
+                        <Text style={styles.saveEditButtonText}>Send Authentication Code</Text>
+                      )}
+                    </TouchableOpacity>
+                  ) : (
+                    <>
+                      <View style={styles.codeSentBanner}>
+                        <Text style={styles.codeSentBannerText}>Code sent! Check your inbox.</Text>
+                        <TouchableOpacity
+                          onPress={handleSendAccountResetCode}
+                          disabled={sendingAccountCode}
+                        >
+                          <Text style={styles.resendCodeLink}>
+                            {sendingAccountCode ? 'Sending...' : 'Resend'}
+                          </Text>
+                        </TouchableOpacity>
+                      </View>
+
+                      <Text style={styles.editFieldLabel}>6-Digit Authentication Code</Text>
+                      <TextInput
+                        style={styles.editInput}
+                        placeholder="Enter 6-digit code"
+                        placeholderTextColor="#64748b"
+                        keyboardType="number-pad"
+                        maxLength={6}
+                        value={accountResetCode}
+                        onChangeText={setAccountResetCode}
+                      />
+
+                      <Text style={styles.editFieldLabel}>New Password</Text>
+                      <PasswordField
+                        placeholder="Enter new password"
+                        placeholderTextColor="#64748b"
+                        containerStyle={styles.editPasswordWrapper}
+                        inputStyle={styles.editPasswordTextInput}
+                        iconSize={18}
+                        value={newAccountPw}
+                        onChangeText={setNewAccountPw}
+                        resetKey={`${showAccountModal}-${showAccountResetForm}`}
+                      />
+
+                      <Text style={styles.editFieldLabel}>Confirm New Password</Text>
+                      <PasswordField
+                        placeholder="Re-enter new password"
+                        placeholderTextColor="#64748b"
+                        containerStyle={styles.editPasswordWrapper}
+                        inputStyle={styles.editPasswordTextInput}
+                        iconSize={18}
+                        value={confirmNewAccountPw}
+                        onChangeText={setConfirmNewAccountPw}
+                        resetKey={`${showAccountModal}-${showAccountResetForm}`}
+                      />
+
+                      <TouchableOpacity
+                        style={styles.saveEditButton}
+                        onPress={handleInAccountPasswordUpdate}
+                        disabled={updatingAccountPw}
+                      >
+                        {updatingAccountPw ? (
+                          <ActivityIndicator color="#0f172a" />
+                        ) : (
+                          <Text style={styles.saveEditButtonText}>Verify & Update Password</Text>
+                        )}
+                      </TouchableOpacity>
+                    </>
+                  )}
+                </View>
+              )}
+
+              {/* Delete Account Section with Multi-Step Prompts */}
+              <View style={styles.accountSectionDivider} />
+              {!showDeleteConfirmBox ? (
+                <TouchableOpacity
+                  style={styles.deleteAccountTriggerBtn}
+                  onPress={promptAccountDeletionFlow}
+                >
+                  <Text style={styles.deleteAccountTriggerText}>Delete Account</Text>
+                </TouchableOpacity>
+              ) : (
+                <View style={styles.dangerConfirmBox}>
+                  <Text style={styles.dangerConfirmTitle}>Confirm Permanent Deletion</Text>
+                  <Text style={styles.dangerConfirmBody}>
+                    Type <Text style={{ fontWeight: 'bold', color: '#f8fafc' }}>DELETE</Text> below to confirm removing your account and all {displayGarmentCount} garment(s).
+                  </Text>
+                  <TextInput
+                    style={styles.dangerConfirmInput}
+                    placeholder="Type DELETE"
+                    placeholderTextColor="#64748b"
+                    autoCapitalize="characters"
+                    value={deleteConfirmText}
+                    onChangeText={setDeleteConfirmText}
+                  />
+                  <View style={styles.dangerActionsRow}>
+                    <TouchableOpacity
+                      style={styles.dangerCancelBtn}
+                      onPress={() => {
+                        setShowDeleteConfirmBox(false);
+                        setDeleteConfirmText('');
+                      }}
+                    >
+                      <Text style={styles.dangerCancelBtnText}>Cancel</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[
+                        styles.dangerSubmitBtn,
+                        deleteConfirmText.trim().toUpperCase() !== 'DELETE' && { opacity: 0.5 },
+                      ]}
+                      onPress={confirmAndDeleteAccount}
+                      disabled={deletingAccount}
+                    >
+                      {deletingAccount ? (
+                        <ActivityIndicator color="#fff" />
+                      ) : (
+                        <Text style={styles.dangerSubmitBtnText}>Permanently Delete</Text>
+                      )}
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              )}
+            </View>
+          </ScrollView>
+        </KeyboardAvoidingView>
+      </Modal>
+
       {/* GPS Location Disclosure Disclaimer Modal */}
       <Modal
         visible={showLocationDisclaimer}
@@ -1175,7 +1780,8 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#0f172a' },
   authContainer: { flexGrow: 1, justifyContent: 'center', paddingHorizontal: 24, paddingVertical: 40 },
   appTitle: { fontSize: 36, fontWeight: 'bold', color: '#f8fafc', textAlign: 'center', letterSpacing: 1 },
-  appSubtitle: { fontSize: 14, color: '#94a3b8', textAlign: 'center', marginBottom: 32, letterSpacing: 2, textTransform: 'uppercase' },
+  appSubtitle: { fontSize: 14, color: '#94a3b8', textAlign: 'center', marginBottom: 24, letterSpacing: 2, textTransform: 'uppercase' },
+  resetHelperText: { color: '#cbd5e1', fontSize: 13, lineHeight: 19, textAlign: 'center', marginBottom: 20 },
   label: { color: '#94a3b8', fontSize: 14, marginBottom: 8 },
   authGenderContainer: { flexDirection: 'row', backgroundColor: '#1e293b', borderRadius: 8, marginBottom: 16, borderWidth: 1, borderColor: '#334155', padding: 2 },
   authGenderTab: { flex: 1, paddingVertical: 10, alignItems: 'center', borderRadius: 6 },
@@ -1183,7 +1789,43 @@ const styles = StyleSheet.create({
   authGenderText: { color: '#94a3b8', fontWeight: '600' },
   authActiveGenderText: { color: '#0f172a' },
   input: { backgroundColor: '#1e293b', color: '#f8fafc', paddingHorizontal: 16, paddingVertical: 14, borderRadius: 8, fontSize: 16, marginBottom: 16, borderWidth: 1, borderColor: '#334155' },
-  primaryButton: { backgroundColor: '#f59e0b', paddingVertical: 14, borderRadius: 8, alignItems: 'center', marginTop: 8 },
+  passwordWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#1e293b',
+    borderRadius: 8,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#334155',
+  },
+  passwordTextInput: {
+    flex: 1,
+    color: '#f8fafc',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    fontSize: 16,
+  },
+  eyeButton: {
+    paddingHorizontal: 14,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  editPasswordWrapper: {
+    backgroundColor: '#0f172a',
+    marginBottom: 0,
+    borderColor: '#334155',
+  },
+  editPasswordTextInput: {
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 14,
+  },
+  codeSentBanner: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: 'rgba(245, 158, 11, 0.12)', borderWidth: 1, borderColor: '#f59e0b', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10, marginBottom: 14, gap: 8 },
+  codeSentBannerText: { color: '#fbbf24', fontSize: 12, flex: 1 },
+  resendCodeLink: { color: '#f59e0b', fontSize: 12, fontWeight: 'bold', textDecorationLine: 'underline' },
+  forgotPasswordRow: { alignSelf: 'flex-end', marginTop: -8, marginBottom: 16 },
+  forgotPasswordText: { color: '#f59e0b', fontSize: 13, fontWeight: '600' },
+  primaryButton: { backgroundColor: '#f59e0b', paddingVertical: 14, borderRadius: 8, alignItems: 'center', marginTop: 4 },
   primaryButtonText: { color: '#0f172a', fontSize: 16, fontWeight: 'bold' },
   switchAuthText: { marginTop: 20, alignItems: 'center' },
   switchTextNormal: { color: '#94a3b8', fontSize: 14 },
@@ -1191,6 +1833,9 @@ const styles = StyleSheet.create({
   headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12 },
   headerTitle: { fontSize: 24, fontWeight: 'bold', color: '#f8fafc' },
   loggedUserText: { fontSize: 13, color: '#f59e0b', fontWeight: '600' },
+  headerActionsGroup: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  accountButton: { backgroundColor: '#1e293b', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6, borderWidth: 1, borderColor: '#f59e0b' },
+  accountButtonText: { color: '#f59e0b', fontSize: 12, fontWeight: '600' },
   logoutButton: { backgroundColor: '#1e293b', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6, borderWidth: 1, borderColor: '#334155' },
   logoutText: { color: '#ef4444', fontSize: 12, fontWeight: '600' },
   modeSwitcherContainer: { flexDirection: 'row', marginHorizontal: 16, marginBottom: 12, backgroundColor: '#1e293b', borderRadius: 10, padding: 3, borderWidth: 1, borderColor: '#334155' },
@@ -1291,7 +1936,25 @@ const styles = StyleSheet.create({
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0, 0, 0, 0.85)', justifyContent: 'center', alignItems: 'center', padding: 20 },
   modalScrollWrapper: { flexGrow: 1, justifyContent: 'center', alignItems: 'center', width: '100%' },
   modalContent: { width: '100%', minWidth: 310, backgroundColor: '#1e293b', borderRadius: 16, padding: 20, alignItems: 'center', borderWidth: 1, borderColor: '#334155' },
-  modalTopActionsRow: { width: '100%', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
+  modalTopActionsRow: { width: '100%', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
+  accountModalHeaderTitle: { color: '#f8fafc', fontSize: 18, fontWeight: 'bold' },
+  accountSectionDivider: { width: '100%', height: 1, backgroundColor: '#334155', marginVertical: 14 },
+  accountActionRowBtn: { width: '100%', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#0f172a', paddingHorizontal: 14, paddingVertical: 12, borderRadius: 10, borderWidth: 1, borderColor: '#334155' },
+  accountActionRowBtnText: { color: '#f59e0b', fontSize: 14, fontWeight: 'bold' },
+  accountActionChevron: { color: '#f59e0b', fontSize: 12, fontWeight: 'bold' },
+  accountSubCard: { width: '100%', backgroundColor: '#0f172a', borderRadius: 10, padding: 12, marginTop: 10, borderWidth: 1, borderColor: '#334155' },
+  accountResetNote: { color: '#cbd5e1', fontSize: 13, lineHeight: 18, marginBottom: 10 },
+  deleteAccountTriggerBtn: { width: '100%', backgroundColor: 'rgba(239, 68, 68, 0.12)', paddingVertical: 12, borderRadius: 10, alignItems: 'center', borderWidth: 1, borderColor: '#ef4444' },
+  deleteAccountTriggerText: { color: '#ef4444', fontSize: 14, fontWeight: 'bold' },
+  dangerConfirmBox: { width: '100%', backgroundColor: '#0f172a', borderRadius: 10, padding: 14, borderWidth: 1, borderColor: '#ef4444' },
+  dangerConfirmTitle: { color: '#ef4444', fontSize: 15, fontWeight: 'bold', marginBottom: 6 },
+  dangerConfirmBody: { color: '#cbd5e1', fontSize: 13, lineHeight: 18, marginBottom: 10 },
+  dangerConfirmInput: { backgroundColor: '#1e293b', color: '#f8fafc', paddingHorizontal: 12, paddingVertical: 10, borderRadius: 8, fontSize: 14, borderWidth: 1, borderColor: '#ef4444', marginBottom: 12 },
+  dangerActionsRow: { flexDirection: 'row', gap: 10 },
+  dangerCancelBtn: { flex: 1, backgroundColor: '#334155', paddingVertical: 10, borderRadius: 8, alignItems: 'center' },
+  dangerCancelBtnText: { color: '#f8fafc', fontSize: 13, fontWeight: '600' },
+  dangerSubmitBtn: { flex: 1.3, backgroundColor: '#ef4444', paddingVertical: 10, borderRadius: 8, alignItems: 'center' },
+  dangerSubmitBtnText: { color: '#ffffff', fontSize: 13, fontWeight: 'bold' },
   modalEditButton: { backgroundColor: '#0f172a', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, borderWidth: 1, borderColor: '#f59e0b' },
   modalEditButtonActive: { backgroundColor: '#334155', borderColor: '#64748b' },
   modalEditButtonText: { color: '#f59e0b', fontSize: 12, fontWeight: 'bold' },

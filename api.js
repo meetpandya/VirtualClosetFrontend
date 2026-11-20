@@ -6,6 +6,110 @@ export const getImageUrl = (relativePath) => {
   return `${hostRoot}${relativePath}`;
 };
 
+export const sendPasswordResetCode = async (email) => {
+  const targetUrl = `${API_BASE_URL}/password-reset/send-code`;
+
+  try {
+    const response = await fetch(targetUrl, {
+      method: 'POST',
+      headers: {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ email }),
+    });
+
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.detail || `Server returned HTTP ${response.status}`);
+    }
+
+    return data;
+  } catch (error) {
+    console.error('Send reset code error:', error);
+    return { status: 'error', message: error.message };
+  }
+};
+
+export const confirmPasswordReset = async ({ email, code, newPassword }) => {
+  const targetUrl = `${API_BASE_URL}/password-reset/confirm`;
+
+  try {
+    const response = await fetch(targetUrl, {
+      method: 'POST',
+      headers: {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        email,
+        code,
+        new_password: newPassword,
+      }),
+    });
+
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.detail || `Server returned HTTP ${response.status}`);
+    }
+
+    return data;
+  } catch (error) {
+    console.error('Confirm password reset error:', error);
+    return { status: 'error', message: error.message };
+  }
+};
+
+export const fetchAccountDetails = async (userId) => {
+  const targetUrl = `${API_BASE_URL}/account`;
+
+  try {
+    const response = await fetch(targetUrl, {
+      method: 'GET',
+      headers: {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json',
+        'X-User-Id': userId,
+      },
+    });
+
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.detail || `Server returned HTTP ${response.status}`);
+    }
+
+    return data;
+  } catch (error) {
+    console.error('Fetch account error:', error);
+    return { status: 'error', message: error.message };
+  }
+};
+
+export const deleteUserAccount = async (userId) => {
+  const targetUrl = `${API_BASE_URL}/account`;
+
+  try {
+    const response = await fetch(targetUrl, {
+      method: 'DELETE',
+      headers: {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json',
+        'X-User-Id': userId,
+      },
+    });
+
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.detail || `Server returned HTTP ${response.status}`);
+    }
+
+    return data;
+  } catch (error) {
+    console.error('Delete account error:', error);
+    return { status: 'error', message: error.message };
+  }
+};
+
 export const fetchWardrobeItems = async (userId) => {
   const targetUrl = `${API_BASE_URL}/items`;
 

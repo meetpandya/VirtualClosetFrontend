@@ -163,6 +163,7 @@ export default function App() {
 
   // Enlarged & Edit Garment Modal States
   const [enlargedItem, setEnlargedItem] = useState(null);
+  const [enlargedImageError, setEnlargedImageError] = useState(false);
   const [isEditingGarment, setIsEditingGarment] = useState(false);
   const [editCategory, setEditCategory] = useState('');
   const [editColor, setEditColor] = useState('');
@@ -539,6 +540,7 @@ export default function App() {
 
   const openGarmentModal = (item) => {
     setEnlargedItem(item);
+    setEnlargedImageError(false);
     setIsEditingGarment(false);
     setEditCategory(item.category || '');
     setEditColor(item.color || '');
@@ -548,6 +550,7 @@ export default function App() {
 
   const closeGarmentModal = () => {
     setEnlargedItem(null);
+    setEnlargedImageError(false);
     setIsEditingGarment(false);
   };
 
@@ -1076,9 +1079,6 @@ export default function App() {
       {activeTab === 'wardrobe' ? (
         <>
           <View style={styles.controlsRow}>
-            <Text style={styles.wardrobeSubtitle}>
-              {isSelectMode ? `${selectedItemIds.length} Selected` : `${userSession.gender}'s Wardrobe`}
-            </Text>
 
             <View style={styles.actionButtons}>
               {isSelectMode ? (
@@ -1350,6 +1350,7 @@ export default function App() {
           style={styles.modalOverlay}
         >
           <ScrollView
+            style={{ width: '100%' }}
             contentContainerStyle={styles.modalScrollWrapper}
             keyboardShouldPersistTaps="handled"
           >
@@ -1593,6 +1594,7 @@ export default function App() {
           style={styles.modalOverlay}
         >
           <ScrollView
+            style={{ width: '100%' }}
             contentContainerStyle={styles.modalScrollWrapper}
             keyboardShouldPersistTaps="handled"
           >
@@ -1633,11 +1635,37 @@ export default function App() {
 
               {enlargedItem && (
                 <>
-                  <Image
-                    source={{ uri: `${HOST_ROOT}${enlargedItem.image_path}` }}
-                    style={[styles.enlargedImage, isEditingGarment && { height: 200 }]}
-                    resizeMode="contain"
-                  />
+                  <View
+                    style={[
+                      styles.enlargedImageBox,
+                      isEditingGarment && { height: 200 },
+                    ]}
+                  >
+                    {enlargedItem.image_path && !enlargedImageError ? (
+                      <Image
+                        source={{ uri: `${HOST_ROOT}${enlargedItem.image_path}` }}
+                        style={styles.enlargedImage}
+                        resizeMode="contain"
+                        onError={(e) => {
+                          console.warn(
+                            'Enlarged image load error:',
+                            e.nativeEvent?.error,
+                            enlargedItem.image_path
+                          );
+                          setEnlargedImageError(true);
+                        }}
+                      />
+                    ) : (
+                      <View style={styles.enlargedImageFallback}>
+                        <Ionicons name="shirt-outline" size={44} color="#475569" />
+                        <Text style={styles.enlargedImageFallbackText}>
+                          {enlargedItem.category === 'Processing'
+                            ? 'Processing garment image...'
+                            : 'Image preview unavailable'}
+                        </Text>
+                      </View>
+                    )}
+                  </View>
 
                   {!isEditingGarment ? (
                     <>
@@ -1935,7 +1963,7 @@ const styles = StyleSheet.create({
   outfitPieceSub: { color: '#94a3b8', fontSize: 11, marginTop: 2 },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0, 0, 0, 0.85)', justifyContent: 'center', alignItems: 'center', padding: 20 },
   modalScrollWrapper: { flexGrow: 1, justifyContent: 'center', alignItems: 'center', width: '100%' },
-  modalContent: { width: '100%', minWidth: 310, backgroundColor: '#1e293b', borderRadius: 16, padding: 20, alignItems: 'center', borderWidth: 1, borderColor: '#334155' },
+  modalContent: { width: '100%', maxWidth: 420, backgroundColor: '#1e293b', borderRadius: 16, padding: 20, alignItems: 'center', borderWidth: 1, borderColor: '#334155' },
   modalTopActionsRow: { width: '100%', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
   accountModalHeaderTitle: { color: '#f8fafc', fontSize: 18, fontWeight: 'bold' },
   accountSectionDivider: { width: '100%', height: 1, backgroundColor: '#334155', marginVertical: 14 },
@@ -1968,7 +1996,33 @@ const styles = StyleSheet.create({
   disclaimerPrimaryText: { color: '#0f172a', fontSize: 14, fontWeight: 'bold' },
   modalCloseButton: { padding: 4 },
   modalCloseText: { color: '#94a3b8', fontSize: 22, fontWeight: 'bold' },
-  enlargedImage: { width: '100%', height: 280, backgroundColor: '#cbd5e1', borderRadius: 8, marginBottom: 14 },
+  enlargedImageBox: {
+    width: '100%',
+    height: 280,
+    backgroundColor: '#cbd5e1',
+    borderRadius: 8,
+    marginBottom: 14,
+    overflow: 'hidden',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  enlargedImage: {
+    width: '100%',
+    height: '100%',
+  },
+  enlargedImageFallback: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 16,
+    gap: 8,
+  },
+  enlargedImageFallbackText: {
+    color: '#334155',
+    fontSize: 13,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
   modalTitle: { color: '#f8fafc', fontSize: 18, fontWeight: 'bold', textAlign: 'center', marginBottom: 10 },
   modalDetailsBox: { width: '100%', backgroundColor: '#0f172a', borderRadius: 10, padding: 12, gap: 6 },
   modalDetailRow: { color: '#f8fafc', fontSize: 14 },

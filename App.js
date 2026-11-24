@@ -19,6 +19,7 @@ import {
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
+import * as Updates from 'expo-updates';
 import { Ionicons } from '@expo/vector-icons';
 import {
   API_BASE_URL,
@@ -171,10 +172,66 @@ export default function App() {
   const [editBrand, setEditBrand] = useState('');
   const [savingEdit, setSavingEdit] = useState(false);
 
+  // OTA Update Release Notes Modal State
+  const [whatsNewNote, setWhatsNewNote] = useState(null);
+
   const HOST_ROOT = API_BASE_URL.replace('/api', '');
 
   useEffect(() => {
     checkPersistedSession();
+  }, []);
+
+  // 1. Check for, download, and immediately apply new OTA updates
+  useEffect(() => {
+    if (__DEV__) return;
+
+    let isMounted = true;
+
+    const checkAndApplyOtaUpdate = async () => {
+      try {
+        const update = await Updates.checkForUpdateAsync();
+        if (!update.isAvailable || !isMounted) return;
+
+        const fetched = await Updates.fetchUpdateAsync();
+        if (fetched.isNew && isMounted) {
+          await Updates.reloadAsync();
+        }
+      } catch (error) {
+        console.warn('OTA update check skipped/failed:', error);
+      }
+    };
+
+    checkAndApplyOtaUpdate();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  // 2. Show "What's New" once whenever the app boots into a newly applied OTA update
+  useEffect(() => {
+    if (__DEV__) return;
+
+    const checkReleaseNotes = async () => {
+      try {
+        const currentUpdateId = Updates.updateId;
+        if (!currentUpdateId) return;
+
+        const lastSeenId = await AsyncStorage.getItem('@atelier_last_seen_update_id');
+        if (lastSeenId === currentUpdateId) return;
+
+        const rawMessage =
+          Updates.manifest?.metadata?.updateMessage ||
+          Updates.manifest?.extra?.expoClient?.extra?.releaseNotes ||
+          'Bug fixes and performance improvements.';
+
+        setWhatsNewNote(rawMessage.trim());
+      } catch (e) {
+        console.warn('Could not read update release notes:', e);
+      }
+    };
+
+    checkReleaseNotes();
   }, []);
 
   useEffect(() => {
@@ -185,6 +242,18 @@ export default function App() {
       fetchItems();
     }
   }, [userSession]);
+
+  const dismissWhatsNew = async () => {
+    try {
+      if (Updates.updateId) {
+        await AsyncStorage.setItem('@atelier_last_seen_update_id', Updates.updateId);
+      }
+    } catch (e) {
+      console.warn('Failed to save seen update ID:', e);
+    } finally {
+      setWhatsNewNote(null);
+    }
+  };
 
   const checkPersistedSession = async () => {
     try {
@@ -809,6 +878,33 @@ export default function App() {
     return parts.filter((val) => val && val.trim() !== '').join(' • ');
   };
 
+  const renderWhatsNewModal = () => (
+    <Modal
+      visible={whatsNewNote !== null}
+      transparent={true}
+      animationType="fade"
+      onRequestClose={dismissWhatsNew}
+    >
+      <View style={styles.modalOverlay}>
+        <View style={styles.modalContent}>
+          <Text style={styles.whatsNewBadge}>NEW UPDATE APPLIED</Text>
+          <Text style={styles.disclaimerTitle}>What's New in Atelier</Text>
+
+          <View style={styles.whatsNewBox}>
+            <Text style={styles.whatsNewText}>{whatsNewNote}</Text>
+          </View>
+
+          <TouchableOpacity
+            style={[styles.primaryButton, { width: '100%', marginTop: 14 }]}
+            onPress={dismissWhatsNew}
+          >
+            <Text style={styles.primaryButtonText}>Got It</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </Modal>
+  );
+
   if (loadingSession) {
     return (
       <View style={styles.centerContainer}>
@@ -1004,6 +1100,8 @@ export default function App() {
             </TouchableOpacity>
           </ScrollView>
         </KeyboardAvoidingView>
+
+        {renderWhatsNewModal()}
       </SafeAreaView>
     );
   }
@@ -1079,6 +1177,9 @@ export default function App() {
       {activeTab === 'wardrobe' ? (
         <>
           <View style={styles.controlsRow}>
+            <Text style={styles.wardrobeSubtitle}>
+              {isSelectMode ? `${selectedItemIds.length} Selected` : `${userSession.gender}'s Wardrobe`}
+            </Text>
 
             <View style={styles.actionButtons}>
               {isSelectMode ? (
@@ -1799,6 +1900,8 @@ export default function App() {
           </ScrollView>
         </KeyboardAvoidingView>
       </Modal>
+
+      {renderWhatsNewModal()}
     </SafeAreaView>
   );
 }
@@ -2038,4 +2141,24 @@ const styles = StyleSheet.create({
   editInput: { backgroundColor: '#0f172a', color: '#f8fafc', paddingHorizontal: 12, paddingVertical: 10, borderRadius: 8, fontSize: 14, borderWidth: 1, borderColor: '#334155' },
   saveEditButton: { backgroundColor: '#f59e0b', paddingVertical: 12, borderRadius: 8, alignItems: 'center', marginTop: 14 },
   saveEditButtonText: { color: '#0f172a', fontSize: 14, fontWeight: 'bold' },
+  whatsNewBadge: {
+    color: '#f59e0b',
+    fontSize: 11,
+    fontWeight: 'bold',
+    letterSpacing: 1.5,
+    marginBottom: 4,
+  },
+  whatsNewBox: {
+    width: '100%',
+    backgroundColor: '#0f172a',
+    borderRadius: 10,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: '#334155',
+  },
+  whatsNewText: {
+    color: '#f8fafc',
+    fontSize: 14,
+    lineHeight: 21,
+  },
 });

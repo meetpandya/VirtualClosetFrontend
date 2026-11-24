@@ -20,7 +20,12 @@
         "backgroundColor": "#18181B"
       },
       "permissions": [
-        "android.permission.RECORD_AUDIO"
+        "android.permission.RECORD_AUDIO",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION"
       ]
     },
     "plugins": [
@@ -42,6 +47,13 @@
       "eas": {
         "projectId": "9e1b121e-7a18-43dc-9c8f-c5b6b0b4184a"
       }
-    }
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/9e1b121e-7a18-43dc-9c8f-c5b6b0b4184a"
+    },
+    "ios": {}
   }
 }

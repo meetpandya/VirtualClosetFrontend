@@ -668,7 +668,7 @@ export default function App() {
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsMultipleSelection: true,
-        selectionLimit: 10,
+        selectionLimit: 0, // 0 means no limit
         allowsEditing: false,
         quality: 0.8,
       });

@@ -5,7 +5,7 @@
     "owner": "meetpandyas-team",
     "version": "1.0.0",
     "orientation": "portrait",
-    "userInterfaceStyle": "default",
+    "userInterfaceStyle": "automatic",
     "icon": "./assets/icon.png",
     "splash": {
       "image": "./assets/splash-icon.png",
